@@ -51,11 +51,18 @@ class World:
         turn_diff    = right_dn_rate - left_dn_rate
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
-            # Brain is silent — wander with looming-based turn bias so the fly
-            # circles away from walls instead of bouncing off them
+            # Brain is silent — wander with looming-based steering.
+            # Two components:
+            #   1. Differential: turn away from whichever side is closer
+            #   2. Total: amplify random wander when approaching anything head-on
+            #      (both sensors equal → diff ≈ 0, but total is high → more random chaos)
             self._silent_frames += 1
-            loom_bias = (self.looming_right - self.looming_left) * LOOM_TURN * dt
-            self.heading += loom_bias + np.random.uniform(-WANDER_TURN, WANDER_TURN)
+            loom_total = (self.looming_left + self.looming_right) / 2
+            loom_diff  = self.looming_right - self.looming_left
+            turn_bias  = loom_diff * LOOM_TURN * dt
+            rand_scale = 1.0 + loom_total * 8.0   # up to 9x random at loom=1
+            self.heading += turn_bias + np.random.uniform(-WANDER_TURN * rand_scale,
+                                                           WANDER_TURN * rand_scale)
             target_speed = WANDER_SPEED
         else:
             self._silent_frames = 0

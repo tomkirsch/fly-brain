@@ -211,11 +211,13 @@ def main():
                 active_now = brain.active[:brain.nactive[0]]
                 brain.v[active_now] *= 0.8
 
-            # 3. Step 250 × 0.1ms LIF ticks (continuous — state persists across frames)
+            # 3. Step 50 × 0.1ms LIF ticks (continuous — state persists across frames).
+            #    50 ticks keeps nactive growth per frame small → fast on CPU.
+            #    Signal propagates over many frames since voltage state is preserved.
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = _advance(brain, 250)
+            brain.cursor = _advance(brain, 50)
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
