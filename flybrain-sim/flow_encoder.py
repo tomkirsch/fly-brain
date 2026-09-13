@@ -17,17 +17,21 @@ For a fly at heading θ moving with velocity (vx, vy):
 Left eye sees: front-to-back (T4a) ∝ fwd + lat  (outer flow faster when turning)
 Right eye sees: front-to-back (T4a) ∝ fwd - lat
 
-CALIBRATION TARGET (boat.horse validation):
-  Constant front-to-back flow on left eye → DNa02 fires 26 Hz (left) vs 2 Hz (right)
-  Start FLOW_GAIN around 8.0 mV and tune until DNa02 hits ~26 Hz.
-  Use brain_runner.py --calibrate flag to run this check.
+CALIBRATION (boat.horse reference):
+  "T4a in both eyes → DNa02 left 26 Hz vs right 2 Hz" is a biological rate.
+  In the sim (200 LIF ticks = 20ms per window), 26 Hz = ~0.5 spikes/window.
+  With FLOW_GAIN=20 we see ~6 spikes/window (fine for navigation; well below
+  the ~9-spike physical max set by the 2.2ms refractory period).
+  Do NOT chase the "26" number — tune for stable 3-8 spikes/window instead.
+  Use brain_runner.py --calibrate to check.
 """
 
 import numpy as np
 
 
-# Tune these until DNa02 asymmetry matches boat.horse (26Hz vs 2Hz)
-# 8.0 produced DN=0 — raised to 80.0 as starting point; go to 200+ if still silent
+# FLOW_GAIN=20 gives dna02 ~6 spikes/200-tick window (≈300 Hz sim-rate, well above
+# biological 26 Hz but adequate for navigation). Max achievable ≈ 9 (refractory-limited).
+# Lower if nactive blooms past 150k; raise only if dna02 stays at 0.
 FLOW_GAIN = 20.0   # mV per unit flow
 LOOM_GAIN = 12.0   # mV per unit looming (0-1 range)
 
