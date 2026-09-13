@@ -166,6 +166,8 @@ def main():
     parser.add_argument("--height",    type=int, default=600)
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--fps",       type=int, default=50)
+    parser.add_argument("--steps",     type=int, default=200,
+                        help="LIF ticks per frame (200 = 20ms @ dt=0.1ms, matches 50fps)")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
@@ -260,7 +262,7 @@ def main():
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = do_advance(brain, 200)
+            brain.cursor = do_advance(brain, args.steps)
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
@@ -293,7 +295,7 @@ def main():
                 time.sleep(frame_dt - elapsed)
 
             frame += 1
-            if frame % (args.fps * 5) == 0:
+            if frame % 10 == 0:   # print every 10 frames regardless of fps
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  DN_L={left_rate:.1f}Hz DN_R={right_rate:.1f}Hz"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
