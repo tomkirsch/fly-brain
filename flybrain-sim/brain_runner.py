@@ -39,29 +39,29 @@ def load_groups(groups_path: Path, brain_ids: np.ndarray) -> dict:
     raw = json.loads(groups_path.read_text())
     return {k: np.array(v, dtype=np.int32) for k, v in raw.items()}
 
-# ---- seed active set ----
-def _seed_active_set(brain, groups: dict):
-    """Add T4/T5 and looming neurons to the initial active set.
+# ---- active set management ----
+def _reseed_driven(brain, drive: np.ndarray):
+    """Reset active set to only the neurons currently receiving drive.
 
-    DOOMFLY's default active set only contains retina/lamina/sugar neurons.
-    We inject drive directly at T4/T5 (no luminance path, no lamina bias),
-    so these neurons must be pre-seeded to receive their drive and fire.
-    When they fire, the Numba kernel automatically adds their downstream
-    partners (medulla, lobula, DNs) — no full-network ignition.
+    Called every frame. Prevents cascade accumulation: the DOOMFLY kernel
+    adds all downstream partners to active regardless of whether they fire,
+    so without a reset the active set grows to the full connectome within
+    a few frames and the whole network ignites (inhibitory neurons suppress DNs).
+
+    Resetting to just the driven neurons each frame lets the signal propagate
+    fresh each 200-tick advance — T4a fires, chain propagates to DNs within
+    those 200 ticks, then we reset for the next frame.
     """
-    seed_prefixes = ('t4', 't5', 'lc4', 'lplc2')
-    seed_keys = [k for k in groups if any(k.startswith(p) for p in seed_prefixes)]
-    added = 0
-    for k in seed_keys:
-        for idx in groups[k]:
-            if brain.active_flag[idx] == 0:
-                brain.active_flag[idx] = 1
-                pos = brain.nactive[0]
-                brain.active[pos] = idx
-                brain.nactive[0] += 1
-                added += 1
-    print(f"  Seeded {added} T4/T5/LC4/LPLC2 neurons into active set")
-    print(f"  Total initial active: {brain.nactive[0]}")
+    if brain.nactive[0] > 0:
+        brain.active_flag[brain.active[:brain.nactive[0]]] = 0
+        brain.nactive[0] = 0
+    driven = np.nonzero(drive)[0].astype(np.int32)
+    n = len(driven)
+    if n > 0:
+        brain.active[:n] = driven
+        brain.active_flag[driven] = 1
+        brain.nactive[0] = n
+    return n
 
 # ---- read DN fire rates ----
 def read_dn_rates(counts: np.ndarray, groups: dict):
@@ -100,9 +100,10 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
                                looming_left=0.0, looming_right=0.0)
         brain.drive[:] = drive
         brain.counts[:] = 0
+        n_driven = _reseed_driven(brain, drive)
         brain.cursor = _advance(brain, 200)
         if i == 0:
-            print(f"  After first advance: nactive={brain.nactive[0]}")
+            print(f"  Seeded {n_driven} driven neurons; after first advance: nactive={brain.nactive[0]}")
         if i % 100 == 99:
             print(f"  step {i+1}/{steps}  nactive={brain.nactive[0]}")
 
@@ -158,11 +159,6 @@ def main():
     groups = load_groups(Path(__file__).parent / "neuron_groups.json", brain.ids)
     encoder = FlowEncoder(groups, brain.n)
 
-    # Seed T4/T5/LC4/LPLC2 into active set BEFORE any advance() call.
-    # Without this, drive injected at these neurons has no effect because
-    # the Numba kernel only processes neurons already in brain.active.
-    _seed_active_set(brain, groups)
-
     world   = World(width=args.width, height=args.height)
     ws      = WsBroadcaster(port=8765)
     ws.start()
@@ -185,12 +181,16 @@ def main():
             t0 = time.monotonic()
 
             # 1. Encode synthetic optical flow → drive array
-            brain.drive[:] = encoder.encode(
+            drive = encoder.encode(
                 world.vx, world.vy, world.heading,
                 world.looming_left, world.looming_right,
             )
+            brain.drive[:] = drive
 
-            # 2. Step 200 × 0.1ms LIF ticks
+            # 2. Reset active set to driven neurons only (prevents cascade accumulation)
+            _reseed_driven(brain, drive)
+
+            # 3. Step 200 × 0.1ms LIF ticks
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
