@@ -238,7 +238,7 @@ python identify_neurons.py --doomfly ../doomfly
 Always activate the venv first, then run from the `flybrain-sim/` directory:
 
 ```bash
-source ~/fly-brain/doomfly/.venv-neural/bin/activate
+source ~/fly-brain/doomfly/.venv-neural/bin/activate  # venv lives in doomfly, not flybrain-sim
 cd ~/fly-brain/flybrain-sim-repo/flybrain-sim
 
 # Calibrate first (optional but recommended)
