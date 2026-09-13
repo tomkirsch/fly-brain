@@ -5,6 +5,51 @@ Real fly brain (MaleCNS connectome, 166,700 neurons) navigating a 2D world on sc
 Fork of DOOMFLY with the input swapped from a Doom game to synthetic optical flow
 and the output swapped from game controls to a WebSocket → browser canvas.
 
+## GPU acceleration (CUDA)
+
+`cuda-kernel` branch adds `engine_cuda.py`: the same LIF kernel ported to a
+numba `cuda.jit` path that runs **all 166,700 neurons every tick** (no active-set
+pruning needed on GPU).
+
+### WSL2 setup (RTX 2060 6GB is sufficient — ~450 MB VRAM used)
+
+Install the CUDA toolkit inside WSL (the Windows driver already provides the
+user-mode driver; WSL needs the toolkit only for numba's driver binding):
+
+```bash
+sudo apt update
+sudo apt install -y nvidia-cuda-toolkit        # or: conda install -c nvidia cuda-toolkit
+python -c "import numba.cuda; print(numba.cuda.is_available())"   # expect True
+```
+
+Then run normally:
+
+```bash
+python brain_runner.py                # auto-detects GPU, uses CUDA engine
+python brain_runner.py --cpu          # force the CPU engine
+python brain_runner.py --selftest     # 200 steps CPU vs GPU, prints mismatch
+```
+
+Auto-detection: if `numba.cuda.is_available()` is False (or `--cpu` is passed),
+brain_runner prints a warning and uses the original CPU engine unchanged.
+
+Selftest runs 200 steps on both engines from identical initial state and drive
+seed, then prints per-neuron spike-count mismatch (max / mean). Zero or a
+handful of ±1 mismatches is expected (float32 delivery-order rounding); large
+mismatch means a real port bug.
+
+### Version compatibility notes (WSL2, driver 610.43, CUDA UMD 13.3)
+
+- numba must be new enough to bind a CUDA 13 user-mode driver: use
+  **numba >= 0.62** (`pip install -U numba`). Older numba (≤0.61) supports only
+  CUDA 12.x and will fail with `NvvmError` / `cuInit` errors.
+- Keep `numpy < 2.4` if numba complains at import time.
+- If `numba.cuda.is_available()` prints False despite a working `nvidia-smi`,
+  check `CUDA_HOME` points at the toolkit and try `conda install -c nvidia
+  cuda-toolkit` (conda toolkits tend to match numba's supported versions).
+
+---
+
 ## Prerequisites
 
 - **Python 3.11** (DOOMFLY requires it — `py -3.11` on Windows, `python3.11` on Mac/Linux)

@@ -22,6 +22,14 @@ from pathlib import Path
 
 import numpy as np
 
+
+def cuda_available() -> bool:
+    try:
+        import numba.cuda as _c
+        return bool(_c.is_available())
+    except Exception:
+        return False
+
 # ---- locate DOOMFLY ----
 def find_doomfly(path: str) -> Path:
     p = Path(path).resolve()
@@ -80,8 +88,18 @@ def read_dn_rates(counts: np.ndarray, groups: dict):
     right_rate = forward + turn_r
     return left_rate, right_rate
 
+def _reset_state(brain, use_cuda, v=-52.0):
+    if use_cuda:
+        brain.reset_state(v=v)
+    else:
+        brain.v[:] = v
+        brain.g[:] = 0
+        brain.counts[:] = 0
+
+
 # ---- calibration helper ----
-def run_calibration(brain, groups: dict, encoder, steps: int = 500):
+def run_calibration(brain, groups: dict, encoder, steps: int = 500,
+                    use_cuda: bool = False, do_advance=None):
     """
     Inject constant left-eye front-to-back flow, check DNa02 response.
     Expected: dna02_left ~26 Hz, dna02_right ~2 Hz at correct FLOW_GAIN.
@@ -94,15 +112,16 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
     from flow_encoder import FLOW_GAIN
     print(f"FLOW_GAIN = {FLOW_GAIN}")
 
-    brain.v[:] = -52
-    brain.g[:] = 0
-    brain.counts[:] = 0
+    _reset_state(brain, use_cuda)
 
     # Seed once — drive propagates continuously from here
     drive = encoder.encode(vx=5.0, vy=0.0, heading=0.0,
                            looming_left=0.0, looming_right=0.0)
     brain.drive[:] = drive
-    n_driven = _reseed_driven(brain, drive)
+    if use_cuda:
+        n_driven = int((drive != 0).sum())  # GPU runs all neurons; no active set
+    else:
+        n_driven = _reseed_driven(brain, drive)
     print(f"  Seeded {n_driven} driven neurons (continuous from here)")
 
     # Intermediate layers to trace signal depth
@@ -116,7 +135,7 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
     for i in range(steps):
         brain.drive[:] = drive
         brain.counts[:] = 0
-        brain.cursor = _advance(brain, 200)
+        brain.cursor = (do_advance or _advance)(brain, 200)
 
         if i % 100 == 99 or i == 0:
             parts = []
@@ -147,10 +166,20 @@ def main():
     parser.add_argument("--height",    type=int, default=600)
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--fps",       type=int, default=50)
+    parser.add_argument("--cpu",       action="store_true",
+                        help="Force the CPU (numba njit) engine")
+    parser.add_argument("--selftest",  action="store_true",
+                        help="Run 200 steps on CPU+GPU and compare "
+                             "per-neuron spike counts, then exit")
     args = parser.parse_args()
 
     doomfly_path = find_doomfly(args.doomfly)
     sys.path.insert(0, str(doomfly_path))
+
+    if args.selftest:
+        from engine_cuda import run_selftest
+        run_selftest(doomfly_path, steps=200)
+        return
 
     from doom.engine import Brain
     from flow_encoder import FlowEncoder
@@ -167,6 +196,25 @@ def main():
     brain = Brain(graph_path)
     print(f"  {brain.n} neurons, {len(brain.post)} synapses")
 
+    # ---- backend selection: GPU if available unless --cpu ----
+    use_cuda = False
+    if not args.cpu:
+        use_cuda = cuda_available()
+        if not use_cuda:
+            print("WARNING: numba.cuda.is_available() is False — "
+                  "falling back to the CPU engine.")
+    else:
+        print("--cpu: forcing CPU engine.")
+    if use_cuda:
+        from engine_cuda import CudaBrain
+        brain = CudaBrain(brain)
+        print(f"  CUDA engine ready ({brain.device_bytes()/1e6:.0f} MB VRAM)")
+
+    def do_advance(brain, steps):
+        if use_cuda:
+            return brain.advance(steps)
+        return _advance(brain, steps)
+
     groups = load_groups(Path(__file__).parent / "neuron_groups.json", brain.ids)
     encoder = FlowEncoder(groups, brain.n)
 
@@ -177,14 +225,16 @@ def main():
 
     if args.calibrate:
         print("First advance will JIT-compile Numba kernel (~30-60s) ...")
-        run_calibration(brain, groups, encoder)
+        run_calibration(brain, groups, encoder, use_cuda=use_cuda,
+                        do_advance=do_advance)
         # Continue into main loop after calibration
 
     # One-time seed: put T4/T5 driven neurons into the active set so the first
     # advance has something to propagate. After this we never wipe the active set.
     init_drive = encoder.encode(vx=1.0, vy=0.0, heading=0.0,
                                 looming_left=0.0, looming_right=0.0)
-    _reseed_driven(brain, init_drive)
+    if not use_cuda:
+        _reseed_driven(brain, init_drive)
 
     frame_dt = 1.0 / args.fps
     last_send = time.monotonic()
@@ -208,7 +258,7 @@ def main():
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = _advance(brain, 20)
+            brain.cursor = do_advance(brain, 20)
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
