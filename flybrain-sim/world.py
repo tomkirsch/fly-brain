@@ -11,12 +11,13 @@ import math
 import numpy as np
 
 
-SPEED_GAIN  = 300.0  # pixels/sec per Hz of forward DN
-TURN_GAIN   = 0.5    # rad/sec per Hz differential
-DRAG        = 0.85   # velocity decay per frame (smooths motion)
-LOOM_RANGE  = 180.0  # pixels at which looming starts
-WANDER_SPEED = 40.0  # px/sec baseline wander when brain output is silent
-WANDER_TURN  = 0.03  # rad/frame random drift
+SPEED_GAIN   = 300.0  # pixels/sec per Hz of forward DN
+TURN_GAIN    = 0.5    # rad/sec per Hz differential
+DRAG         = 0.85   # velocity decay per frame (smooths motion)
+LOOM_RANGE   = 280.0  # pixels at which looming starts (wider → earlier detection)
+WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
+WANDER_TURN  = 0.03   # rad/frame random drift
+LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wander mode
 
 
 class World:
@@ -50,9 +51,11 @@ class World:
         turn_diff    = right_dn_rate - left_dn_rate
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
-            # Brain is silent — wander so optical flow keeps feeding the network
+            # Brain is silent — wander with looming-based turn bias so the fly
+            # circles away from walls instead of bouncing off them
             self._silent_frames += 1
-            self.heading += np.random.uniform(-WANDER_TURN, WANDER_TURN)
+            loom_bias = (self.looming_right - self.looming_left) * LOOM_TURN * dt
+            self.heading += loom_bias + np.random.uniform(-WANDER_TURN, WANDER_TURN)
             target_speed = WANDER_SPEED
         else:
             self._silent_frames = 0
@@ -91,11 +94,13 @@ class World:
         self._update_looming()
 
     def _update_looming(self):
-        left_angle  = self.heading - math.pi / 2
-        right_angle = self.heading + math.pi / 2
+        # 45° off-center covers the forward hemifield: fly sees walls ahead, not just beside it.
+        # Full π FOV per eye so the left eye covers the left 180° and right eye the right 180°.
+        left_angle  = self.heading - math.pi / 4
+        right_angle = self.heading + math.pi / 4
 
-        dist_l = self._nearest_obstacle_distance(left_angle,  fov=math.pi * 0.6)
-        dist_r = self._nearest_obstacle_distance(right_angle, fov=math.pi * 0.6)
+        dist_l = self._nearest_obstacle_distance(left_angle,  fov=math.pi)
+        dist_r = self._nearest_obstacle_distance(right_angle, fov=math.pi)
 
         self.looming_left  = max(0.0, 1.0 - dist_l / LOOM_RANGE) ** 2
         self.looming_right = max(0.0, 1.0 - dist_r / LOOM_RANGE) ** 2
