@@ -212,26 +212,10 @@ def main():
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
-            # 3. Hard cap active set to MAX_ACTIVE neurons post-advance.
-            #    DOOMFLY adds all postsynaptic partners to the queue on every spike,
-            #    so voltage dampening alone can't drain the set — it refills each tick.
-            #    Solution: keep only the top MAX_ACTIVE neurons by membrane voltage
-            #    (most excited = most likely to fire), reset the rest to resting.
-            MAX_ACTIVE = 50000
-            n = brain.nactive[0]
-            if n > MAX_ACTIVE:
-                active_now = brain.active[:n].copy()
-                vols = brain.v[active_now]
-                # argpartition is O(n) — faster than full sort
-                cut = n - MAX_ACTIVE
-                order = np.argpartition(vols, cut)
-                keep = active_now[order[cut:]]
-                drop = active_now[order[:cut]]
-                brain.v[drop]          = -52.0
-                brain.g[drop]          = 0.0
-                brain.active_flag[drop] = 0
-                brain.active[:MAX_ACTIVE] = keep
-                brain.nactive[0] = MAX_ACTIVE
+            # No hard cap — let nactive stabilize naturally.
+            # At FLOW_GAIN=20 the T4/T5 cascade should saturate within the visual
+            # processing layers without blasting the whole 166k network.
+            # If nactive still blooms to 166k, lower FLOW_GAIN further.
 
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups)
