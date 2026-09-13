@@ -22,7 +22,11 @@ for filename, url in registry["files"].items():
         urllib.request.urlretrieve(url, partial)
         partial.replace(target)
     print(f"  verifying {filename} ...")
-    digest = hashlib.file_digest(target.open("rb"), "sha256").hexdigest()
+    h = hashlib.sha256()
+    with target.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    digest = h.hexdigest()
     if digest != locked[filename]["sha256"]:
         raise RuntimeError(f"Checksum mismatch: {filename}")
     print(f"  OK")
