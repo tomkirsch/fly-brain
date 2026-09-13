@@ -246,6 +246,7 @@ def main():
 
     frame_dt = 1.0 / args.fps
     last_send = time.monotonic()
+    actual_dt = frame_dt   # real wall-clock time per frame; updated each iteration
     frame = 0
 
     print(f"\nRunning at {args.fps} fps target. Open fly.html in browser.")
@@ -280,8 +281,9 @@ def main():
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
 
-            # 4. Update world physics
-            world.step(left_rate, right_rate, dt=frame_dt)
+            # 4. Update world physics — use real wall-clock dt so fly speed is
+            # independent of GPU throughput (rt=7x was making it 7× too slow).
+            world.step(left_rate, right_rate, dt=actual_dt)
 
             # 5. Broadcast to browser
             now = time.monotonic()
@@ -299,6 +301,7 @@ def main():
             elapsed = time.monotonic() - t0
             if elapsed < frame_dt:
                 time.sleep(frame_dt - elapsed)
+            actual_dt = max(elapsed, frame_dt)  # true wall time; feeds physics next frame
 
             frame += 1
             if frame % 10 == 0:   # print every 10 frames regardless of fps

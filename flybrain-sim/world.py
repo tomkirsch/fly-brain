@@ -11,8 +11,8 @@ import math
 import numpy as np
 
 
-SPEED_GAIN   = 12.0   # pixels/sec per spike/window (dna02 fires ~5-6 → ~65px/s)
-TURN_GAIN    = 0.3    # rad/sec per spike differential (±1 spike → ±0.006 rad/frame)
+SPEED_GAIN   = 25.0   # pixels/sec per normalized spike (dna02 ~6 normalized → ~150px/s)
+TURN_GAIN    = 1.5    # rad/sec per spike differential (amplified: ±4 norm → ±0.21 rad/s)
 DRAG         = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE   = 280.0  # pixels at which looming starts (wider → earlier detection)
 WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
