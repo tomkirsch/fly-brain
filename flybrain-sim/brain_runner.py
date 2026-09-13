@@ -39,6 +39,30 @@ def load_groups(groups_path: Path, brain_ids: np.ndarray) -> dict:
     raw = json.loads(groups_path.read_text())
     return {k: np.array(v, dtype=np.int32) for k, v in raw.items()}
 
+# ---- seed active set ----
+def _seed_active_set(brain, groups: dict):
+    """Add T4/T5 and looming neurons to the initial active set.
+
+    DOOMFLY's default active set only contains retina/lamina/sugar neurons.
+    We inject drive directly at T4/T5 (no luminance path, no lamina bias),
+    so these neurons must be pre-seeded to receive their drive and fire.
+    When they fire, the Numba kernel automatically adds their downstream
+    partners (medulla, lobula, DNs) — no full-network ignition.
+    """
+    seed_prefixes = ('t4', 't5', 'lc4', 'lplc2')
+    seed_keys = [k for k in groups if any(k.startswith(p) for p in seed_prefixes)]
+    added = 0
+    for k in seed_keys:
+        for idx in groups[k]:
+            if brain.active_flag[idx] == 0:
+                brain.active_flag[idx] = 1
+                pos = brain.nactive[0]
+                brain.active[pos] = idx
+                brain.nactive[0] += 1
+                added += 1
+    print(f"  Seeded {added} T4/T5/LC4/LPLC2 neurons into active set")
+    print(f"  Total initial active: {brain.nactive[0]}")
+
 # ---- read DN fire rates ----
 def read_dn_rates(counts: np.ndarray, groups: dict):
     """
@@ -65,18 +89,22 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
     print("\n=== Calibration: constant left-eye forward flow ===")
     from flow_encoder import FLOW_GAIN
     print(f"FLOW_GAIN = {FLOW_GAIN}")
+    print(f"nactive at calibration start: {brain.nactive[0]}")
 
     brain.v[:] = -52
     brain.g[:] = 0
     brain.counts[:] = 0
 
-    for _ in range(steps):
+    for i in range(steps):
         drive = encoder.encode(vx=5.0, vy=0.0, heading=0.0,
                                looming_left=0.0, looming_right=0.0)
         brain.drive[:] = drive
-        brain.drive[brain.lamina] = LAMINA_BIAS   # tonic bias keeps network alive
         brain.counts[:] = 0
         brain.cursor = _advance(brain, 200)
+        if i == 0:
+            print(f"  After first advance: nactive={brain.nactive[0]}")
+        if i % 100 == 99:
+            print(f"  step {i+1}/{steps}  nactive={brain.nactive[0]}")
 
     for key in ["dna02_left", "dna02_right", "dng100_left", "dng100_right"]:
         arr = groups.get(key, np.array([], dtype=np.int32))
@@ -88,8 +116,6 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
 
     print("Target: dna02_left ~26, dna02_right ~2")
     print("Adjust FLOW_GAIN in flow_encoder.py if off.\n")
-
-LAMINA_BIAS = 12.0   # tonic current DOOMFLY applies to all lamina neurons each step
 
 def _advance(brain, steps: int):
     from doom.engine import advance
@@ -131,11 +157,19 @@ def main():
 
     groups = load_groups(Path(__file__).parent / "neuron_groups.json", brain.ids)
     encoder = FlowEncoder(groups, brain.n)
+
+    # Seed T4/T5/LC4/LPLC2 into active set BEFORE any advance() call.
+    # Without this, drive injected at these neurons has no effect because
+    # the Numba kernel only processes neurons already in brain.active.
+    _seed_active_set(brain, groups)
+
     world   = World(width=args.width, height=args.height)
     ws      = WsBroadcaster(port=8765)
     ws.start()
+    print(f"WebSocket: ws://localhost:8765")
 
     if args.calibrate:
+        print("First advance will JIT-compile Numba kernel (~30-60s) ...")
         run_calibration(brain, groups, encoder)
         # Continue into main loop after calibration
 
@@ -155,11 +189,14 @@ def main():
                 world.vx, world.vy, world.heading,
                 world.looming_left, world.looming_right,
             )
-            brain.drive[brain.lamina] = LAMINA_BIAS   # tonic bias keeps network alive
 
             # 2. Step 200 × 0.1ms LIF ticks
             brain.counts[:] = 0
+            if frame == 0:
+                print("First main-loop advance (Numba JIT if not cached) ...")
             brain.cursor = _advance(brain, 200)
+            if frame == 0:
+                print(f"  Done. nactive={brain.nactive[0]}")
 
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups)
@@ -188,7 +225,8 @@ def main():
             if frame % (args.fps * 5) == 0:
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  L={left_rate:.1f}  R={right_rate:.1f}"
-                      f"  pos=({world.x:.0f},{world.y:.0f})  rt={rt:.2f}x")
+                      f"  pos=({world.x:.0f},{world.y:.0f})  rt={rt:.2f}x"
+                      f"  nactive={brain.nactive[0]}")
 
     except KeyboardInterrupt:
         print("\nStopped.")

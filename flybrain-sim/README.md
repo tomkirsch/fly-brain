@@ -133,6 +133,8 @@ python identify_neurons.py --doomfly ../doomfly
 | `FileNotFoundError: clang++` | Windows native — use WSL2 instead |
 | `DOOMFLY not found at .../doomfly` | Pass `--doomfly ~/fly-brain/doomfly` explicitly; don't rely on the default |
 | `No annotation CSV found` | DOOMFLY uses `.feather` files — needs `pip install pandas pyarrow` |
+| Calibration hangs for minutes after "WebSocket:" line | **Do NOT apply DOOMFLY's lamina bias (12.0)** — it ignites all 166k neurons, making CPU advance() take minutes per frame. We inject directly at T4/T5 instead; they're seeded into `brain.active` so drive reaches them. |
+| `L=0.0 R=0.0` even after first few frames | T4/T5 neurons not in initial active set — brain never processes them. `_seed_active_set()` in `brain_runner.py` fixes this. |
 
 ---
 
