@@ -254,14 +254,19 @@ WSL2 shares localhost with Windows so the WebSocket connection works automatical
 
 ## Calibration
 
-After `--calibrate`, check the printout:
+After `--calibrate`, check the printout for healthy values:
 ```
-dna02_left:  X.X spikes/frame
-dna02_right: X.X spikes/frame
-Target: dna02_left ~26, dna02_right ~2
+Good: dna02 stable at 3-8 spikes/window, nactive < 100k.
 ```
 
-If off, edit `FLOW_GAIN` in `flow_encoder.py` and rerun.
+**On the "26 Hz vs 2 Hz" boat.horse target:** that's a biological Hz figure.
+At 200 ticks/window (20ms), 26 Hz = 0.52 spikes/window — already well below
+what we see. The sim LIF runs hotter than biology; 3-8 spikes/window is fine.
+Do NOT raise FLOW_GAIN trying to hit 26 counts — it's physically impossible
+for a single neuron (refractory period caps max at ~9 spikes/200 ticks).
+
+If `dna02 = 0`: lower FLOW_GAIN.
+If `nactive > 150k`: lower FLOW_GAIN.
 
 ## File map
 
@@ -280,26 +285,66 @@ fly.html             browser canvas renderer (open directly, no server)
 ```
   world state (pos, velocity, heading)
         ↓
-  flow_encoder → brain.drive[T4/T5/LC4 indices]
+  flow_encoder → brain.drive[T4/T5/LC4/LPLC2 indices]
         ↓
-  Brain.advance() × 200 mini-ticks
+  Brain.advance() × N ticks (default 50; --steps to override)
         ↓
-  brain.counts[DNa02/DNg100 indices] → left/right rate
+  brain.counts[DNa02_left/right] normalized to 200-tick equivalent
         ↓
-  world.step(left, right) → update pos/heading/looming
+  world.step(left, right, dt=actual_elapsed) → update pos/heading/looming
         ↓
-  ws_server.broadcast() → fly.html (canvas)
+  ws_server.broadcast() → fly.html (60fps interpolated canvas)
 ```
+
+## What's neural vs what's programmed
+
+**Genuinely from the 166k-neuron connectome:**
+- DNa02 spike magnitude (~5-6 spikes/200-tick window) — real T4a → medulla → lobula → DN chain
+- Left/right differential — when lateral velocity creates asymmetric optical flow, the
+  MaleCNS circuit routes it asymmetrically to dna02_left vs dna02_right through real
+  synaptic weights; the 4/8 alternation is genuine stochastic single-neuron firing
+- LC4/LPLC2 looming response — these neurons fire when walls approach (lc4 ~1 spike/window
+  in calibration) — the looming circuit is real and active
+
+**Programmed by us (`world.py`, `flow_encoder.py`):**
+- The physics equations (speed/heading update from DN rates)
+- SPEED_GAIN, TURN_GAIN, DRAG constants
+- Wall bounce logic — the fly does NOT genuinely avoid walls yet
+- Direction convention mapping velocity → T4a subtypes
+
+**The gap:** LC4/LPLC2 are firing but not connected to navigation. Wall avoidance is
+hardcoded geometry, not brain output.
+
+## Neuron group sizes (MaleCNS)
+
+All descending neurons (DNa02, DNg100, DNg13) are **1 neuron per side** — biologically
+correct, these are unique identified cells. DNg100 was found to not be downstream of T4a
+in the MaleCNS circuit and was dropped from `read_dn_rates`.
+
+| Group | Count/side | Status |
+|-------|-----------|--------|
+| T4a/b/c/d | ~835-895 | Input layer, driving well |
+| T5a/b/c/d | ~808-863 | Input layer, driving well |
+| LC4 | 55-71 | Looming — active, not yet read for nav |
+| LPLC2 | 91-94 | Looming — active, not yet read for nav |
+| DNa02 | 1 | **Turn signal** — primary motor output |
+| DNg100 | 1 | Silent (not T4a downstream) — dropped |
 
 ## What to expect
 
-- Fly wanders using the brain's own optomotor and escape reflexes
-- Approaching walls → looming neurons fire → Giant Fiber → escape turn
-- Visual flow stabilization kicks in automatically
-- Wings flap in browser based on speed; red glow = looming active
+- Fly moves under genuine brain control; DNa02 left/right differential drives turning
+- Turns emerge naturally from optical flow asymmetry when heading changes
+- Wall bounces are hardcoded; the brain's looming circuit fires but isn't wired to avoidance yet
+- Wings flap in browser based on speed; red glow when looming is high
 
 ## Next
 
-- Add obstacles (circles) to world.obstacles for richer navigation
-- Add brain viz: pipe spike counts per neuron over WebSocket → Three.js point cloud
-- Tune SPEED_GAIN / TURN_GAIN in world.py to taste
+**Most neural-honest next step:** Wire LC4/LPLC2 output to wall avoidance.
+Read `counts[lplc2_left/right]` and use differential to bias heading when
+looming is high — then escape turns come from the actual looming circuit,
+not hardcoded geometry.
+
+Other ideas:
+- Add obstacles (circles) to `world.obstacles` for richer navigation
+- Brain viz: pipe spike counts per neuron over WebSocket → Three.js point cloud
+- Explore other DNs in the connectome that may respond to T4a (DNg13?)
