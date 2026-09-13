@@ -7,41 +7,75 @@ and the output swapped from game controls to a WebSocket → browser canvas.
 
 ## Prerequisites
 
+Needs Python 3.11 and an NVIDIA GPU (RTX 3080 class or better) for real-time speed.
+
 ### 1. Clone DOOMFLY
+
+**Mac/Linux:**
 ```bash
-cd brainstorm/fly-brain
+cd fly-brain
 git clone https://github.com/nftechie/doomfly doomfly
 cd doomfly
 ```
 
-### 2. Set up DOOMFLY (follow their README)
+**Windows:**
+```cmd
+cd fly-brain
+git clone https://github.com/nftechie/doomfly doomfly
+cd doomfly
+```
+
+### 2. Set up DOOMFLY
+
+**Mac/Linux:**
 ```bash
 python3.11 -m venv .venv-neural
 source .venv-neural/bin/activate
-pip install -r requirements-neural.txt -r doom/requirements.txt \
-    --build-constraint neural-build-constraints.txt
+pip install setuptools==68.2.2 numpy==1.24.4 Cython==0.29.37
+pip install -r requirements-neural.txt -r doom/requirements.txt
+```
 
-# Download MaleCNS data (~1-2 GB)
+**Windows (PowerShell):**
+```powershell
+py -3.11 -m venv .venv-neural
+.venv-neural\Scripts\Activate.ps1
+pip install setuptools==68.2.2 numpy==1.24.4 Cython==0.29.37
+pip install -r requirements-neural.txt -r doom/requirements.txt
+```
+
+> Note: DOOMFLY's README uses `--build-constraint` which older pip versions don't support.
+> The two-step install above achieves the same result.
+
+Then download the MaleCNS data and compile the CUDA kernel (same on all platforms):
+```
 python -m doom.connectome malecns_v1
 python -m doom.prepare
-python -m doom.build_kernel   # compiles CUDA kernel — needs NVIDIA GPU
+python -m doom.build_kernel
 ```
 
 ### 3. Install our deps (in the same venv)
+
+**Mac/Linux:**
 ```bash
 cd ../flybrain-sim
 pip install -r requirements.txt
 ```
 
+**Windows:**
+```cmd
+cd ..\flybrain-sim
+pip install -r requirements.txt
+```
+
 ### 4. Map neuron groups (one-time)
-```bash
+```
 python identify_neurons.py --doomfly ../doomfly
 # Creates neuron_groups.json
 ```
 
 ## Run
 
-```bash
+```
 # Optional: calibrate flow gain first
 python brain_runner.py --calibrate
 
