@@ -217,7 +217,7 @@ def main():
             #    so voltage dampening alone can't drain the set — it refills each tick.
             #    Solution: keep only the top MAX_ACTIVE neurons by membrane voltage
             #    (most excited = most likely to fire), reset the rest to resting.
-            MAX_ACTIVE = 12000
+            MAX_ACTIVE = 50000
             n = brain.nactive[0]
             if n > MAX_ACTIVE:
                 active_now = brain.active[:n].copy()
