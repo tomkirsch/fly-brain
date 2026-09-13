@@ -38,6 +38,25 @@ It's not just a visualization. It's a closed-loop system with actual sensors and
 - **Scale up / slow down:** Project the LED body map huge; render neural spike activity in real time as an art piece
 - **Sound:** Sonify spike rates per neuron group — fly brain as live generative instrument
 
+### Music Response (art piece concept)
+
+**The circuit:** JO-B neurons (Johnston's organ, second antennal segment) are the fly's ears — specifically tuned to ~160-225Hz oscillatory signals, which is the male courtship song frequency. Male flies vibrate one wing to produce a pulse song (~170ms IPI) or sine song (~200Hz continuous). Females use JO-B to evaluate the song and choose whether to mate.
+
+**Wiring audio in:**
+```
+microphone → FFT → bandpass 160-225Hz → amplitude → scale × GAIN → brain.drive[jоб_indices]
+```
+
+**Genre sensitivity:**
+- Bass-heavy EDM/hip-hop: strong 60-180Hz content → heavy JO-B activation
+- Punk/guitar rock: mostly 200-5000Hz → JO-B gets nothing, fly ignores it
+- Cello, bass clarinet, male voice: sits right in the activation band
+- Beat drops vs silence: behavioral change with the music, not programmed
+
+**Why it's interesting:** In a real fly, JO-B → courtship downstream circuits → mating behavior. In our sim there's no mate context. Those circuits fire, propagate through the mushroom body, hit descending neurons in some unpredetermined pattern. The fly might slow down, turn erratically, oscillate. Nobody knows in advance — the biology determines the music response, not the programmer.
+
+**The art proposition:** A fly that reacts to live music in ways that are biologically grounded but behaviorally unpredictable. A performer plays in front of it and sees what the connectome does with their sound. No programmer decided what the music means to the fly. Evolution did, 50 million years ago.
+
 ## Web/Graphical Embodiment — Build Direction
 
 ### The Concept
