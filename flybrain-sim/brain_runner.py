@@ -178,6 +178,12 @@ def main():
         run_calibration(brain, groups, encoder)
         # Continue into main loop after calibration
 
+    # One-time seed: put T4/T5 driven neurons into the active set so the first
+    # advance has something to propagate. After this we never wipe the active set.
+    init_drive = encoder.encode(vx=1.0, vy=0.0, heading=0.0,
+                                looming_left=0.0, looming_right=0.0)
+    _reseed_driven(brain, init_drive)
+
     frame_dt = 1.0 / args.fps
     last_send = time.monotonic()
     frame = 0
@@ -196,14 +202,18 @@ def main():
             )
             brain.drive[:] = drive
 
-            # 2. Reset active set to driven neurons only (prevents cascade accumulation)
-            _reseed_driven(brain, drive)
+            # 2. Runaway guard: if the active set is huge, dampen voltages so
+            #    inhibitory interneurons can catch up. Do NOT reseed — wiping state
+            #    every frame prevents multi-hop signal propagation to DNs.
+            if brain.nactive[0] > 80000:
+                active_now = brain.active[:brain.nactive[0]]
+                brain.v[active_now] *= 0.8
 
-            # 3. Step 200 × 0.1ms LIF ticks
+            # 3. Step 250 × 0.1ms LIF ticks (continuous — state persists across frames)
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = _advance(brain, 200)
+            brain.cursor = _advance(brain, 250)
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
