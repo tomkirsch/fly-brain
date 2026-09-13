@@ -107,6 +107,15 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
         if i % 100 == 99:
             print(f"  step {i+1}/{steps}  nactive={brain.nactive[0]}")
 
+    # T4/T5 readout first — if these are 0, signal dies before it starts
+    for key in ["t4a_left", "t4a_right", "t5a_left", "t5a_right"]:
+        arr = groups.get(key, np.array([], dtype=np.int32))
+        if len(arr):
+            rate = brain.counts[arr].mean()
+            print(f"  {key}: {rate:.1f} spikes/frame  (max={brain.counts[arr].max()})")
+        else:
+            print(f"  {key}: (no neurons mapped)")
+    print()
     for key in ["dna02_left", "dna02_right", "dng100_left", "dng100_right"]:
         arr = groups.get(key, np.array([], dtype=np.int32))
         if len(arr):

@@ -15,6 +15,8 @@ SPEED_GAIN  = 300.0  # pixels/sec per Hz of forward DN
 TURN_GAIN   = 0.5    # rad/sec per Hz differential
 DRAG        = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE  = 180.0  # pixels at which looming starts
+WANDER_SPEED = 40.0  # px/sec baseline wander when brain output is silent
+WANDER_TURN  = 0.03  # rad/frame random drift
 
 
 class World:
@@ -23,14 +25,13 @@ class World:
         self.height = height
         self.margin = 40
 
-        # Fly state — start with a random heading and small nudge so optical flow
-        # is nonzero on frame 1, giving the LIF network enough stimulus to ignite.
         self.x = float(width / 2)
         self.y = float(height / 2)
         self.heading = np.random.uniform(0, 2 * math.pi)
         self.speed = 30.0   # px/sec kickstart; brain takes over within a few frames
         self.vx = math.cos(self.heading) * self.speed
         self.vy = math.sin(self.heading) * self.speed
+        self._silent_frames = 0
 
         # Sensor outputs (updated each step, read by FlowEncoder)
         self.looming_left  = 0.0
@@ -48,10 +49,18 @@ class World:
         forward_rate = (left_dn_rate + right_dn_rate) / 2.0
         turn_diff    = right_dn_rate - left_dn_rate
 
-        self.heading += turn_diff * TURN_GAIN * dt
+        if forward_rate < 0.01 and abs(turn_diff) < 0.01:
+            # Brain is silent — wander so optical flow keeps feeding the network
+            self._silent_frames += 1
+            self.heading += np.random.uniform(-WANDER_TURN, WANDER_TURN)
+            target_speed = WANDER_SPEED
+        else:
+            self._silent_frames = 0
+            self.heading += turn_diff * TURN_GAIN * dt
+
         self.heading  = self.heading % (2 * math.pi)
 
-        target_speed = forward_rate * SPEED_GAIN
+        target_speed = forward_rate * SPEED_GAIN if forward_rate >= 0.01 else WANDER_SPEED
         self.speed = self.speed * DRAG + target_speed * (1 - DRAG)
 
         self.vx = math.cos(self.heading) * self.speed

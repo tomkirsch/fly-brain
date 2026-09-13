@@ -27,7 +27,8 @@ import numpy as np
 
 
 # Tune these until DNa02 asymmetry matches boat.horse (26Hz vs 2Hz)
-FLOW_GAIN = 8.0    # mV per unit flow
+# 8.0 produced DN=0 — raised to 80.0 as starting point; go to 200+ if still silent
+FLOW_GAIN = 80.0   # mV per unit flow
 LOOM_GAIN = 12.0   # mV per unit looming (0-1 range)
 
 
