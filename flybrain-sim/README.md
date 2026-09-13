@@ -141,6 +141,56 @@ python flybrain-sim-repo/flybrain-sim/identify_neurons.py --doomfly ~/fly-brain/
 # Expected output: Total groups: 26, empty: 0
 ```
 
+### 8. Enable CUDA for GPU acceleration (WSL2)
+
+The sim defaults to CPU (Numba njit). For real-time speed, get the GPU kernel working.
+
+**Step 1 — do NOT install `nvidia-cuda-toolkit` via apt.** It installs a CUDA 11 stub
+`libcuda.so.1` into `/lib/x86_64-linux-gnu/` that shadows the real WSL2 driver and causes
+`CUDA_ERROR_NO_DEVICE (100)` even though `nvidia-smi` works fine. If you already installed it:
+
+```bash
+sudo apt remove nvidia-cuda-toolkit
+sudo ldconfig
+```
+
+**Step 2 — force the WSL2 driver** by prepending its path:
+
+```bash
+echo 'export LD_LIBRARY_PATH=/usr/lib/wsl/lib' >> ~/.bashrc
+source ~/.bashrc
+python -c "import numba.cuda; print(numba.cuda.is_available())"  # must print True
+```
+
+**Step 3 — install the pip CUDA wheels** (provide nvcc, nvrtc, libdevice):
+
+```bash
+pip install numba -U   # needs ≥0.62; 0.67 confirmed working
+pip install nvidia-cuda-nvcc-cu12 nvidia-cuda-nvrtc-cu12 cuda-python
+```
+
+**Step 4 — libdevice symlink.** Numba doesn't scan the pip wheel layout for `libdevice.10.bc`
+automatically; symlink it to the standard path it always checks:
+
+```bash
+sudo mkdir -p /usr/local/cuda/nvvm/libdevice/
+sudo ln -sf \
+  $(find ~/.venv-neural -name "libdevice.10.bc" 2>/dev/null | head -1) \
+  /usr/local/cuda/nvvm/libdevice/libdevice.10.bc
+```
+
+(If your venv isn't at `~/.venv-neural`, adjust the find path.)
+
+**Verify:**
+
+```bash
+python brain_runner.py --doomfly ~/fly-brain/doomfly --selftest
+# Expected: PASS, mismatching neurons <100, max |diff| = 1
+```
+
+If the selftest passes, `brain_runner.py` will auto-detect CUDA and run on GPU.
+Use `--cpu` to force CPU mode.
+
 ---
 
 ## Setup: Mac/Linux (native)
