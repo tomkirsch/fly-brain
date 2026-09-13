@@ -152,26 +152,47 @@ function drawFly(s) {
   const { x, y, scale } = worldToScreen(s.x, s.y);
   const h = s.heading;
   const sz = 14 * scale;
+  const loomGlow = Math.max(s.looming_left || 0, s.looming_right || 0);
+
+  // Wing beat: rate scales with speed; each side modulated by its DN rate
+  const t = Date.now() / 1000;
+  const baseFreq = 4 + (s.speed / 80) * 8;   // 4–12 Hz visual rate (real fly is 200Hz)
+  const flapAmp  = Math.min(1, s.speed / 60) * (Math.PI / 4);  // up to 45°
+
+  // Left DN faster → left wing beats deeper (slight differential when turning)
+  const lBias = Math.min(0.3, (s.left_rate  || 0) * 0.02);
+  const rBias = Math.min(0.3, (s.right_rate || 0) * 0.02);
+  const flapL = Math.sin(t * baseFreq * Math.PI * 2) * (flapAmp + lBias);
+  const flapR = Math.sin(t * baseFreq * Math.PI * 2) * (flapAmp + rBias);
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(h);
 
-  // Wings — flap based on forward speed
-  const wingFlap = Math.sin(Date.now() / 60) * (s.speed / 80) * sz * 0.9;
-  const loomGlow = Math.max(s.looming_left || 0, s.looming_right || 0);
+  // Wing pivot: at thorax, slightly back from body center
+  const pivotX = -sz * 0.05;
+  const wingAlpha = 0.28 + loomGlow * 0.3;
+  const wingColor = `rgba(140, 220, 140, ${wingAlpha})`;
 
-  // Wing left
+  // Left wing — rotates around pivot, sweeps up (-y) when positive flapL
+  ctx.save();
+  ctx.translate(pivotX, 0);
+  ctx.rotate(-Math.PI / 2 + flapL);
   ctx.beginPath();
-  ctx.ellipse(-sz * 0.2, -sz * 0.6 + wingFlap, sz * 0.55, sz * 0.25, -0.4, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(140, 220, 140, ${0.25 + loomGlow * 0.3})`;
+  ctx.ellipse(sz * 0.48, 0, sz * 0.58, sz * 0.2, -0.2, 0, Math.PI * 2);
+  ctx.fillStyle = wingColor;
   ctx.fill();
+  ctx.restore();
 
-  // Wing right
+  // Right wing — mirrors left
+  ctx.save();
+  ctx.translate(pivotX, 0);
+  ctx.rotate(Math.PI / 2 - flapR);
   ctx.beginPath();
-  ctx.ellipse(-sz * 0.2,  sz * 0.6 - wingFlap, sz * 0.55, sz * 0.25,  0.4, 0, Math.PI * 2);
-  ctx.fillStyle = `rgba(140, 220, 140, ${0.25 + loomGlow * 0.3})`;
+  ctx.ellipse(sz * 0.48, 0, sz * 0.58, sz * 0.2, 0.2, 0, Math.PI * 2);
+  ctx.fillStyle = wingColor;
   ctx.fill();
+  ctx.restore();
 
   // Body
   ctx.beginPath();
