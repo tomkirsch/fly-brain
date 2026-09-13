@@ -43,6 +43,40 @@ let state = null;
 let trail = [];
 let connected = false;
 
+// Interpolation between WS updates so the fly moves smoothly at 60fps
+// even when the sim sends updates at only 1-6fps.
+let fromState = null;
+let toState   = null;
+let lastUpdateTime = 0;
+let updateInterval = 200; // ms, rolling estimate of WS update period
+
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d >  Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return a + d * t;
+}
+
+function interpState(a, b, t) {
+  if (!a) return b;
+  t = Math.min(1, Math.max(0, t));
+  return {
+    ...b,
+    x:       a.x       + (b.x       - a.x)       * t,
+    y:       a.y       + (b.y       - a.y)       * t,
+    heading: lerpAngle(a.heading, b.heading, t),
+    speed:   a.speed   + (b.speed   - a.speed)   * t,
+    looming_left:  a.looming_left  + (b.looming_left  - a.looming_left)  * t,
+    looming_right: a.looming_right + (b.looming_right - a.looming_right) * t,
+  };
+}
+
+function currentInterp() {
+  if (!toState) return state;
+  const alpha = (Date.now() - lastUpdateTime) / updateInterval;
+  return interpState(fromState, toState, alpha);
+}
+
 // ---- resize ----
 function resize() {
   canvas.width  = window.innerWidth;
@@ -66,12 +100,21 @@ function connect() {
     setTimeout(connect, 1500);
   };
   ws.onmessage = (e) => {
-    state = JSON.parse(e.data);
-    if (state.width)  W = state.width;
-    if (state.height) H = state.height;
-    if (state.x != null) trail.push({ x: state.x, y: state.y });
+    const now = Date.now();
+    const incoming = JSON.parse(e.data);
+    if (incoming.width)  W = incoming.width;
+    if (incoming.height) H = incoming.height;
+
+    // Feed interpolator: current rendered position → new target
+    fromState = toState ? currentInterp() : incoming;
+    if (lastUpdateTime > 0) updateInterval = (now - lastUpdateTime) * 0.7 + updateInterval * 0.3;
+    lastUpdateTime = now;
+    toState = incoming;
+    state = incoming;
+
+    if (incoming.x != null) trail.push({ x: incoming.x, y: incoming.y });
     if (trail.length > TRAIL_LEN) trail.shift();
-    updateHud(state);
+    updateHud(incoming);
   };
 }
 connect();
@@ -232,9 +275,10 @@ function frame() {
   drawBackground();
 
   if (state) {
-    drawObstacles(state.obstacles);
+    const s = currentInterp();
+    drawObstacles(s.obstacles);
     drawTrail();
-    drawFly(state);
+    drawFly(s);
   } else {
     ctx.fillStyle = "#333";
     ctx.font = "14px monospace";

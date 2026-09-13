@@ -175,8 +175,8 @@ def main():
     parser.add_argument("--height",    type=int, default=600)
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--fps",       type=int, default=50)
-    parser.add_argument("--steps",     type=int, default=200,
-                        help="LIF ticks per frame (200 = 20ms @ dt=0.1ms, matches 50fps)")
+    parser.add_argument("--steps",     type=int, default=50,
+                        help="LIF ticks per frame (50=5ms fast, 200=20ms full; GPU makes 200 very slow)")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
