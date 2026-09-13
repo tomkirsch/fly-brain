@@ -157,6 +157,7 @@ class CudaBrain:
         self.nactive = np.zeros(1, dtype=np.int32)
         self.total_spikes = 0
         self.sim_ms = 0.0
+        self._zeros_counts = np.zeros(n, dtype=np.int32)  # reused each advance
 
     def reset_state(self, v=-52.0):
         """Reset v/g/refractory/counts on device (init + calibration)."""
@@ -173,6 +174,9 @@ class CudaBrain:
     def advance(self, steps: int) -> int:
         d = self._d
         t0 = time.perf_counter()
+        # Reset device counts each advance window so brain_runner reads per-window spikes,
+        # not a running total. host-side brain.counts[:]=0 alone doesn't touch device memory.
+        d['counts'].copy_to_device(self._zeros_counts)
         # small per-step transfer: inputs only
         d['drive'].copy_to_device(self.drive)
         cursor = self.cursor
