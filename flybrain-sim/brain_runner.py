@@ -212,21 +212,26 @@ def main():
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
-            # 3. Post-advance runaway guard: dampen + prune the active set.
-            #    Must run AFTER advance (advance adds new neurons; dampening before
-            #    doesn't prevent the set from growing during the advance itself).
+            # 3. Hard cap active set to MAX_ACTIVE neurons post-advance.
+            #    DOOMFLY adds all postsynaptic partners to the queue on every spike,
+            #    so voltage dampening alone can't drain the set — it refills each tick.
+            #    Solution: keep only the top MAX_ACTIVE neurons by membrane voltage
+            #    (most excited = most likely to fire), reset the rest to resting.
+            MAX_ACTIVE = 12000
             n = brain.nactive[0]
-            if n > 15000:
-                active_now = brain.active[:n]
-                brain.v[active_now] *= 0.4
-                # Drop neurons that are back near resting potential — they're
-                # no longer contributing signal and just slow the next advance.
-                still_on = active_now[brain.v[active_now] > -55.0]
-                off      = active_now[brain.v[active_now] <= -55.0]
-                brain.active_flag[off] = 0
-                m = len(still_on)
-                brain.active[:m] = still_on
-                brain.nactive[0] = m
+            if n > MAX_ACTIVE:
+                active_now = brain.active[:n].copy()
+                vols = brain.v[active_now]
+                # argpartition is O(n) — faster than full sort
+                cut = n - MAX_ACTIVE
+                order = np.argpartition(vols, cut)
+                keep = active_now[order[cut:]]
+                drop = active_now[order[:cut]]
+                brain.v[drop]          = -52.0
+                brain.g[drop]          = 0.0
+                brain.active_flag[drop] = 0
+                brain.active[:MAX_ACTIVE] = keep
+                brain.nactive[0] = MAX_ACTIVE
 
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups)
