@@ -204,22 +204,29 @@ def main():
             )
             brain.drive[:] = drive
 
-            # 2. Runaway guard: aggressively clamp the active set when it blooms.
-            #    At 158k active neurons the advance takes ~1s on CPU → 1fps.
-            #    Dampen at 20k (not 80k) to keep each advance fast.
-            if brain.nactive[0] > 20000:
-                active_now = brain.active[:brain.nactive[0]]
-                brain.v[active_now] *= 0.5
-
-            # 3. Step 50 × 0.1ms LIF ticks (continuous — state persists across frames).
-            #    50 ticks keeps nactive growth per frame small → fast on CPU.
-            #    Signal propagates over many frames since voltage state is preserved.
+            # 2. Advance 20 × 0.1ms LIF ticks (state persists across frames)
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = _advance(brain, 50)
+            brain.cursor = _advance(brain, 20)
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
+
+            # 3. Post-advance runaway guard: dampen + prune the active set.
+            #    Must run AFTER advance (advance adds new neurons; dampening before
+            #    doesn't prevent the set from growing during the advance itself).
+            n = brain.nactive[0]
+            if n > 15000:
+                active_now = brain.active[:n]
+                brain.v[active_now] *= 0.4
+                # Drop neurons that are back near resting potential — they're
+                # no longer contributing signal and just slow the next advance.
+                still_on = active_now[brain.v[active_now] > -55.0]
+                off      = active_now[brain.v[active_now] <= -55.0]
+                brain.active_flag[off] = 0
+                m = len(still_on)
+                brain.active[:m] = still_on
+                brain.nactive[0] = m
 
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups)
