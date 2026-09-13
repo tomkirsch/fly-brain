@@ -11,8 +11,8 @@ import math
 import numpy as np
 
 
-SPEED_GAIN  = 80.0   # pixels/sec per Hz of forward DN
-TURN_GAIN   = 0.15   # rad/sec per Hz differential
+SPEED_GAIN  = 300.0  # pixels/sec per Hz of forward DN
+TURN_GAIN   = 0.5    # rad/sec per Hz differential
 DRAG        = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE  = 180.0  # pixels at which looming starts
 
