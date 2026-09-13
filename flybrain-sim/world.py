@@ -11,8 +11,8 @@ import math
 import numpy as np
 
 
-SPEED_GAIN   = 60.0   # pixels/sec per Hz of forward DN (DNs fire ~2-5Hz → 120-300px/s)
-TURN_GAIN    = 0.5    # rad/sec per Hz differential
+SPEED_GAIN   = 12.0   # pixels/sec per spike/window (dna02 fires ~5-6 → ~65px/s)
+TURN_GAIN    = 0.3    # rad/sec per spike differential (±1 spike → ±0.006 rad/frame)
 DRAG         = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE   = 280.0  # pixels at which looming starts (wider → earlier detection)
 WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
