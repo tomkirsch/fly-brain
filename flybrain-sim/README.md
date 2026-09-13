@@ -9,103 +9,154 @@ and the output swapped from game controls to a WebSocket → browser canvas.
 
 - **Python 3.11** (DOOMFLY requires it — `py -3.11` on Windows, `python3.11` on Mac/Linux)
 - **NVIDIA GPU** (RTX 3080 class or better) for real-time speed
-- **C++ compiler** (MSVC on Windows via Visual Studio Build Tools, or gcc/clang on Mac/Linux)
-
-### Windows setup notes
-
-These are the known gotchas from first-time setup — the steps below already account for them:
-
-| DOOMFLY README says | What to do on Windows instead |
-|---|---|
-| `source .venv-neural/bin/activate` | `.venv-neural\Scripts\Activate.ps1` (PowerShell) |
-| `python3.11 -m venv ...` | `py -3.11 -m venv ...` |
-| `pip install ... --build-constraint ...` | Two-step install: pin build deps first, then main install (see step 2) |
-| `python - <<'PY' ... PY` heredoc for download | `python flybrain-sim\download_data.py` |
+- **C++ compiler** — `clang++` on Linux/Mac; **not available natively on Windows** (use WSL — see below)
 
 ---
 
-### 1. Clone DOOMFLY
+## Setup: Windows (via WSL2) — recommended
 
+`build_kernel.py` requires `clang++` and outputs a `.so` file — neither works in native Windows.
+Use WSL2 (Ubuntu). The browser renderer `fly.html` opens normally in Windows Chrome/Firefox.
+
+### 1. Open WSL and install deps
+
+```bash
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3.11-dev clang build-essential
 ```
+
+### 2. Clone DOOMFLY inside WSL (keep native — fast I/O)
+
+```bash
+cd ~
+mkdir fly-brain && cd fly-brain
 git clone https://github.com/nftechie/doomfly doomfly
 cd doomfly
 ```
 
-### 2. Set up DOOMFLY
+### 3. Set up venv and install deps
 
-**Mac/Linux:**
+The `--build-constraint` flag in DOOMFLY's README is not supported by older pip. Use
+`--no-build-isolation` instead, with `wheel` pre-installed so `brian2` can build:
+
 ```bash
 python3.11 -m venv .venv-neural
 source .venv-neural/bin/activate
-pip install setuptools==68.2.2 numpy==1.24.4 Cython==0.29.37
-pip install -r requirements-neural.txt -r doom/requirements.txt
+pip install --upgrade pip
+pip install setuptools==68.2.2 numpy==1.24.4 Cython==0.29.37 wheel
+pip install -r requirements-neural.txt -r doom/requirements.txt --no-build-isolation
 ```
 
-**Windows (PowerShell):**
-```powershell
-py -3.11 -m venv .venv-neural
-.venv-neural\Scripts\Activate.ps1
-pip install setuptools==68.2.2 numpy==1.24.4 Cython==0.29.37
-pip install -r requirements-neural.txt -r doom/requirements.txt
-```
+### 4. Download MaleCNS data (~1-2 GB)
 
-### 3. Download MaleCNS data (~1-2 GB)
+DOOMFLY's README uses a shell heredoc — use the included cross-platform script instead.
+If you ran `download_data.py` on Windows already, copy the files rather than re-downloading:
 
-DOOMFLY's README uses a shell heredoc that doesn't work on Windows. Use the included script instead (works on all platforms):
-
-**Mac/Linux** (from `fly-brain/`):
 ```bash
-python flybrain-sim/download_data.py
+# Option A: already downloaded on Windows — copy it over
+mkdir -p connectome_data/malecns_v1
+cp -r /mnt/c/tom/Projects/fly-brain/fly-brain/doomfly/connectome_data/malecns_v1/* \
+      connectome_data/malecns_v1/
+
+# Option B: fresh download
+cd ~/fly-brain
+python flybrain-sim-repo/flybrain-sim/download_data.py --doomfly ~/fly-brain/doomfly
+cd doomfly
 ```
 
-**Windows** (from `fly-brain\`):
-```cmd
-python flybrain-sim\download_data.py
-```
+> **Adjust the `/mnt/c/tom/...` path** to match where your Windows project lives.
+> Your `C:\` drive is at `/mnt/c/` in WSL.
 
-The script resumes partial downloads and verifies checksums. Then import and compile (still inside `doomfly/`):
+### 5. Import graph and compile kernel
 
-```
+```bash
+cd ~/fly-brain/doomfly   # make sure you're here
 python -m doom.connectome malecns_v1
 python -m doom.prepare
 python -m doom.build_kernel
 ```
 
-### 4. Install our deps (in the same venv)
+### 6. Clone flybrain-sim and install its deps
 
-**Mac/Linux:**
 ```bash
+cd ~/fly-brain
+git clone https://github.com/tomkirsch/fly-brain.git flybrain-sim-repo
+pip install -r flybrain-sim-repo/flybrain-sim/requirements.txt
+pip install pandas pyarrow   # needed for reading DOOMFLY's .feather annotation files
+```
+
+### 7. Map neuron groups (one-time)
+
+Always pass `--doomfly` explicitly — the default resolves relative to your working directory,
+not the script location, and will fail if you're not in the right folder:
+
+```bash
+python flybrain-sim-repo/flybrain-sim/identify_neurons.py --doomfly ~/fly-brain/doomfly
+# Saves: flybrain-sim-repo/flybrain-sim/neuron_groups.json
+# Expected output: Total groups: 26, empty: 0
+```
+
+---
+
+## Setup: Mac/Linux (native)
+
+```bash
+cd fly-brain
+git clone https://github.com/nftechie/doomfly doomfly
+cd doomfly
+python3.11 -m venv .venv-neural
+source .venv-neural/bin/activate
+pip install --upgrade pip
+pip install setuptools==68.2.2 numpy==1.24.4 Cython==0.29.37 wheel
+pip install -r requirements-neural.txt -r doom/requirements.txt --no-build-isolation
+python flybrain-sim/download_data.py
+python -m doom.connectome malecns_v1
+python -m doom.prepare
+python -m doom.build_kernel
 cd ../flybrain-sim
 pip install -r requirements.txt
-```
-
-**Windows:**
-```cmd
-cd ..\flybrain-sim
-pip install -r requirements.txt
-```
-
-### 5. Map neuron groups (one-time)
-```
+pip install pandas pyarrow
 python identify_neurons.py --doomfly ../doomfly
-# Creates neuron_groups.json
 ```
+
+---
+
+## Known gotchas (all platforms)
+
+| Symptom | Fix |
+|---|---|
+| `source: not found` | Windows — use `.venv-neural\Scripts\Activate.ps1` (PowerShell) |
+| `no such option: --build-constraint` | Use `--no-build-isolation` after installing `wheel` (see step 3) |
+| `ModuleNotFoundError: No module named 'pkg_resources'` | Missing pinned setuptools — add `setuptools==68.2.2` before main install |
+| `error: invalid command 'bdist_wheel'` | `pip install wheel` then retry with `--no-build-isolation` |
+| `hashlib has no attribute 'file_digest'` | Python 3.10 — `download_data.py` handles this; make sure you have the latest version |
+| `FileNotFoundError: clang++` | Windows native — use WSL2 instead |
+| `DOOMFLY not found at .../doomfly` | Pass `--doomfly ~/fly-brain/doomfly` explicitly; don't rely on the default |
+| `No annotation CSV found` | DOOMFLY uses `.feather` files — needs `pip install pandas pyarrow` |
+
+---
 
 ## Run
 
-```
-# Optional: calibrate flow gain first
-python brain_runner.py --calibrate
+Always run from the `flybrain-sim/` directory with `--doomfly` pointing at the DOOMFLY clone:
+
+```bash
+cd ~/fly-brain/flybrain-sim-repo/flybrain-sim
+
+# Calibrate first (optional but recommended)
+python brain_runner.py --doomfly ~/fly-brain/doomfly --calibrate
 
 # Main loop
-python brain_runner.py
+python brain_runner.py --doomfly ~/fly-brain/doomfly
 ```
 
-Open `fly.html` in a browser (file:// works, no server needed).
+Open `fly.html` in your browser — double-click it directly (file:// works, no server needed).
+On WSL, use the Windows path: `C:\...\flybrain-sim-repo\flybrain-sim\fly.html`.
+WSL2 shares localhost with Windows so the WebSocket connection works automatically.
 
 ## Calibration
 
-After first run with `--calibrate`, check the printout:
+After `--calibrate`, check the printout:
 ```
 dna02_left:  X.X spikes/frame
 dna02_right: X.X spikes/frame
@@ -117,6 +168,7 @@ If off, edit `FLOW_GAIN` in `flow_encoder.py` and rerun.
 ## File map
 
 ```
+download_data.py     cross-platform MaleCNS data downloader (replaces DOOMFLY's heredoc)
 identify_neurons.py  one-time: maps T4/T5/DN neuron IDs → neuron_groups.json
 flow_encoder.py      velocity + heading → T4/T5/LC4 drive currents
 world.py             2D physics: position, walls, looming sensor
