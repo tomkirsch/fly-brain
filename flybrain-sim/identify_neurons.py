@@ -54,21 +54,25 @@ TYPE_ALIASES = {
 
 
 def load_annotations(doomfly_path: Path):
-    """Find and load the MaleCNS neuron annotation CSV from the connectome_data dir."""
-    for pattern in [
-        "connectome_data/malecns_v1/neuprint_Neuprint_Meta_*.csv",
-        "connectome_data/malecns_v1/*neuron*.csv",
-        "connectome_data/malecns_v1/*.csv",
-    ]:
-        matches = list(doomfly_path.glob(pattern))
-        # prefer the one with 'Meta' or 'neurons' in name
+    """Find and load the MaleCNS neuron annotation file (feather or CSV)."""
+    base = doomfly_path / "connectome_data/malecns_v1"
+    # Feather first (DOOMFLY's native format)
+    for name in ["annotations.feather", "neuron_annotations.feather"]:
+        p = base / name
+        if p.exists():
+            return pd.read_feather(p)
+    for m in sorted(base.glob("*.feather")):
+        return pd.read_feather(m)
+    # Fall back to CSV
+    for pattern in ["neuprint_Neuprint_Meta_*.csv", "*neuron*.csv", "*.csv"]:
+        matches = list(base.glob(pattern))
         for m in matches:
             if "Meta" in m.name or "neuron" in m.name.lower():
                 return pd.read_csv(m, low_memory=False)
         if matches:
             return pd.read_csv(matches[0], low_memory=False)
     raise FileNotFoundError(
-        f"No annotation CSV found under {doomfly_path}/connectome_data/malecns_v1/. "
+        f"No annotation file found under {base}. "
         "Run DOOMFLY's data download step first."
     )
 

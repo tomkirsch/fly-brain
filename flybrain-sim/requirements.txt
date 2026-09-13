@@ -1,3 +1,5 @@
 numpy
 numba
 websockets
+pandas
+pyarrow
