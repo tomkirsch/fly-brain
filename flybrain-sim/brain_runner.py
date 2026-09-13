@@ -254,11 +254,13 @@ def main():
             )
             brain.drive[:] = drive
 
-            # 2. Advance 20 × 0.1ms LIF ticks (state persists across frames)
+            # 2. Advance 200 × 0.1ms LIF ticks = 20ms brain time per frame (matches 50fps).
+            # 20 ticks (2ms) was too short: the 1.8ms synaptic delay alone is 18 ticks,
+            # so spikes never reached downstream DNs and the fly ran on wander fallback.
             brain.counts[:] = 0
             if frame == 0:
                 print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = do_advance(brain, 20)
+            brain.cursor = do_advance(brain, 200)
             if frame == 0:
                 print(f"  Done. nactive={brain.nactive[0]}")
 
