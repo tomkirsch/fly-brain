@@ -84,6 +84,24 @@ def read_dn_rates(counts: np.ndarray, groups: dict, steps: int = 200):
     right_rate = counts[groups["dna02_right"]].mean() * norm if len(groups.get("dna02_right", [])) else 0.0
     return left_rate, right_rate
 
+def read_looming_rates(counts: np.ndarray, groups: dict, steps: int = 200):
+    """
+    Returns (loom_left, loom_right) from LPLC2 spike counts, normalized to a
+    200-tick equivalent.  Falls back to LC4 if LPLC2 indices are absent.
+
+    These feed world.step() as the neural looming signal for escape turns.
+    LC4/LPLC2 only fire significantly when the fly is within ~67px of a wall
+    (looming input drives v_eq > threshold); outside that range the signal
+    stays near the T4/T5-driven baseline and the threshold in world.py filters it out.
+    """
+    norm = 200.0 / steps
+    loom_l = counts[groups["lplc2_left"]].mean()  * norm if len(groups.get("lplc2_left",  [])) else 0.0
+    loom_r = counts[groups["lplc2_right"]].mean() * norm if len(groups.get("lplc2_right", [])) else 0.0
+    if loom_l == 0 and loom_r == 0:
+        loom_l = counts[groups["lc4_left"]].mean()  * norm if len(groups.get("lc4_left",  [])) else 0.0
+        loom_r = counts[groups["lc4_right"]].mean() * norm if len(groups.get("lc4_right", [])) else 0.0
+    return float(loom_l), float(loom_r)
+
 def _reset_state(brain, use_cuda, v=-52.0):
     if use_cuda:
         brain.reset_state(v=v)
@@ -280,10 +298,11 @@ def main():
 
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
+            loom_l, loom_r = read_looming_rates(brain.counts, groups, args.steps)
 
             # 4. Update world physics — use real wall-clock dt so fly speed is
             # independent of GPU throughput (rt=7x was making it 7× too slow).
-            world.step(left_rate, right_rate, dt=actual_dt)
+            world.step(left_rate, right_rate, dt=actual_dt, loom_l=loom_l, loom_r=loom_r)
 
             # 5. Broadcast to browser
             now = time.monotonic()
@@ -306,7 +325,8 @@ def main():
             frame += 1
             if frame % 10 == 0:   # print every 10 frames regardless of fps
                 rt = elapsed / frame_dt
-                print(f"  frame {frame}  DN_L={left_rate:.1f}Hz DN_R={right_rate:.1f}Hz"
+                print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
+                      f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
                       f"  rt={rt:.2f}x  nactive={brain.nactive[0]}")
 

@@ -12,12 +12,19 @@ import numpy as np
 
 
 SPEED_GAIN   = 25.0   # pixels/sec per normalized spike (dna02 ~6 normalized → ~150px/s)
-TURN_GAIN    = 1.5    # rad/sec per spike differential (amplified: ±4 norm → ±0.21 rad/s)
+TURN_GAIN    = 1.5    # rad/sec per spike differential
 DRAG         = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE   = 280.0  # pixels at which looming starts (wider → earlier detection)
 WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
 WANDER_TURN  = 0.03   # rad/frame random drift
 LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wander mode
+
+# Neural looming escape (LC4/LPLC2 output read from brain)
+# LC4/LPLC2 fire significantly only when the fly is within ~67px of a wall:
+#   looming_input * LOOM_GAIN(12) must push LIF v_eq above -45mV threshold,
+#   which requires looming > 7/12 ≈ 0.58 → dist < 280*(1-sqrt(0.58)) ≈ 67px.
+BRAIN_LOOM_THRESHOLD = 1.5   # normalized spikes; below = T4/T5 baseline noise, ignore
+BRAIN_LOOM_TURN      = 0.5   # rad/sec per normalized loom-spike differential
 
 
 class World:
@@ -41,34 +48,37 @@ class World:
         # World obstacles: list of circle dicts {cx, cy, r}
         self.obstacles = []
 
-    def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020):
+    def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
+             loom_l: float = 0.0, loom_r: float = 0.0):
         """
         Update fly position from descending neuron fire rates.
-        left_dn_rate / right_dn_rate: Hz (spike counts / frame, not normalized yet)
-        dt: seconds per frame (default 20ms)
+        left_dn_rate / right_dn_rate: normalized spike counts (~200-tick window)
+        dt: seconds per frame (actual wall-clock elapsed, not nominal)
+        loom_l / loom_r: normalized LC4/LPLC2 spike counts from brain; drives
+                         escape turns when above BRAIN_LOOM_THRESHOLD
         """
         forward_rate = (left_dn_rate + right_dn_rate) / 2.0
         turn_diff    = right_dn_rate - left_dn_rate
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
-            # Brain is silent — wander with looming-based steering.
-            # Two components:
-            #   1. Differential: turn away from whichever side is closer
-            #   2. Total: amplify random wander when approaching anything head-on
-            #      (both sensors equal → diff ≈ 0, but total is high → more random chaos)
+            # Brain is silent — wander with geometric looming-based steering.
             self._silent_frames += 1
             loom_total = (self.looming_left + self.looming_right) / 2
             loom_diff  = self.looming_right - self.looming_left
             turn_bias  = loom_diff * LOOM_TURN * dt
-            rand_scale = 1.0 + loom_total * 8.0   # up to 9x random at loom=1
+            rand_scale = 1.0 + loom_total * 8.0
             self.heading += turn_bias + np.random.uniform(-WANDER_TURN * rand_scale,
                                                            WANDER_TURN * rand_scale)
-            target_speed = WANDER_SPEED
         else:
             self._silent_frames = 0
+            # DN differential drives turning
             self.heading += turn_diff * TURN_GAIN * dt
+            # Neural looming escape: LC4/LPLC2 differential steers away from walls.
+            # loom_l > loom_r means left wall closer → turn right (positive heading).
+            if max(loom_l, loom_r) > BRAIN_LOOM_THRESHOLD:
+                self.heading += (loom_l - loom_r) * BRAIN_LOOM_TURN * dt
 
-        self.heading  = self.heading % (2 * math.pi)
+        self.heading = self.heading % (2 * math.pi)
 
         target_speed = forward_rate * SPEED_GAIN if forward_rate >= 0.01 else WANDER_SPEED
         self.speed = self.speed * DRAG + target_speed * (1 - DRAG)
@@ -79,24 +89,10 @@ class World:
         self.x += self.vx * dt
         self.y += self.vy * dt
 
-        # Hard wall bounce
+        # Position clamp — keep fly in bounds; heading is handled by neural looming above
         m = self.margin
-        if self.x < m:
-            self.x = m
-            self.vx =  abs(self.vx)
-            self.heading = math.atan2(self.vy, abs(self.vx))
-        elif self.x > self.width - m:
-            self.x = self.width - m
-            self.vx = -abs(self.vx)
-            self.heading = math.atan2(self.vy, -abs(self.vx))
-        if self.y < m:
-            self.y = m
-            self.vy =  abs(self.vy)
-            self.heading = math.atan2(abs(self.vy), self.vx)
-        elif self.y > self.height - m:
-            self.y = self.height - m
-            self.vy = -abs(self.vy)
-            self.heading = math.atan2(-abs(self.vy), self.vx)
+        self.x = max(m, min(self.width  - m, self.x))
+        self.y = max(m, min(self.height - m, self.y))
 
         self._update_looming()
 
