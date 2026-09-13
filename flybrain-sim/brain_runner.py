@@ -204,12 +204,12 @@ def main():
             )
             brain.drive[:] = drive
 
-            # 2. Runaway guard: if the active set is huge, dampen voltages so
-            #    inhibitory interneurons can catch up. Do NOT reseed — wiping state
-            #    every frame prevents multi-hop signal propagation to DNs.
-            if brain.nactive[0] > 80000:
+            # 2. Runaway guard: aggressively clamp the active set when it blooms.
+            #    At 158k active neurons the advance takes ~1s on CPU → 1fps.
+            #    Dampen at 20k (not 80k) to keep each advance fast.
+            if brain.nactive[0] > 20000:
                 active_now = brain.active[:brain.nactive[0]]
-                brain.v[active_now] *= 0.8
+                brain.v[active_now] *= 0.5
 
             # 3. Step 50 × 0.1ms LIF ticks (continuous — state persists across frames).
             #    50 ticks keeps nactive growth per frame small → fast on CPU.
