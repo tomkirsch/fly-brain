@@ -85,46 +85,48 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
     """
     Inject constant left-eye front-to-back flow, check DNa02 response.
     Expected: dna02_left ~26 Hz, dna02_right ~2 Hz at correct FLOW_GAIN.
+
+    Runs CONTINUOUSLY — seeded once, no per-step reseed — so multi-hop
+    propagation can build up across frames the same way the main loop does.
+    Prints spike rates every 100 steps to show where the signal dies.
     """
     print("\n=== Calibration: constant left-eye forward flow ===")
     from flow_encoder import FLOW_GAIN
     print(f"FLOW_GAIN = {FLOW_GAIN}")
-    print(f"nactive at calibration start: {brain.nactive[0]}")
 
     brain.v[:] = -52
     brain.g[:] = 0
     brain.counts[:] = 0
 
+    # Seed once — drive propagates continuously from here
+    drive = encoder.encode(vx=5.0, vy=0.0, heading=0.0,
+                           looming_left=0.0, looming_right=0.0)
+    brain.drive[:] = drive
+    n_driven = _reseed_driven(brain, drive)
+    print(f"  Seeded {n_driven} driven neurons (continuous from here)")
+
+    # Intermediate layers to trace signal depth
+    TRACE_KEYS = [
+        "t4a_left", "t4a_right",       # input layer
+        "lc4_left", "lc4_right",        # looming / lobula
+        "dna02_left", "dna02_right",    # target DNs
+        "dng100_left", "dng100_right",
+    ]
+
     for i in range(steps):
-        drive = encoder.encode(vx=5.0, vy=0.0, heading=0.0,
-                               looming_left=0.0, looming_right=0.0)
         brain.drive[:] = drive
         brain.counts[:] = 0
-        n_driven = _reseed_driven(brain, drive)
         brain.cursor = _advance(brain, 200)
-        if i == 0:
-            print(f"  Seeded {n_driven} driven neurons; after first advance: nactive={brain.nactive[0]}")
-        if i % 100 == 99:
-            print(f"  step {i+1}/{steps}  nactive={brain.nactive[0]}")
 
-    # T4/T5 readout first — if these are 0, signal dies before it starts
-    for key in ["t4a_left", "t4a_right", "t5a_left", "t5a_right"]:
-        arr = groups.get(key, np.array([], dtype=np.int32))
-        if len(arr):
-            rate = brain.counts[arr].mean()
-            print(f"  {key}: {rate:.1f} spikes/frame  (max={brain.counts[arr].max()})")
-        else:
-            print(f"  {key}: (no neurons mapped)")
-    print()
-    for key in ["dna02_left", "dna02_right", "dng100_left", "dng100_right"]:
-        arr = groups.get(key, np.array([], dtype=np.int32))
-        if len(arr):
-            rate = brain.counts[arr].mean()
-            print(f"  {key}: {rate:.1f} spikes/frame")
-        else:
-            print(f"  {key}: (no neurons mapped)")
+        if i % 100 == 99 or i == 0:
+            parts = []
+            for key in TRACE_KEYS:
+                arr = groups.get(key)
+                if arr is not None and len(arr):
+                    parts.append(f"{key}={brain.counts[arr].mean():.1f}")
+            print(f"  step {i+1:>4}/{steps}  nactive={brain.nactive[0]:>6}  " + "  ".join(parts))
 
-    print("Target: dna02_left ~26, dna02_right ~2")
+    print("\nTarget: dna02_left ~26, dna02_right ~2")
     print("Adjust FLOW_GAIN in flow_encoder.py if off.\n")
 
 def _advance(brain, steps: int):
