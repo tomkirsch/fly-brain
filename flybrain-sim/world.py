@@ -23,13 +23,14 @@ class World:
         self.height = height
         self.margin = 40
 
-        # Fly state
+        # Fly state — start with a random heading and small nudge so optical flow
+        # is nonzero on frame 1, giving the LIF network enough stimulus to ignite.
         self.x = float(width / 2)
         self.y = float(height / 2)
-        self.heading = 0.0   # radians
-        self.vx = 0.0
-        self.vy = 0.0
-        self.speed = 0.0
+        self.heading = np.random.uniform(0, 2 * math.pi)
+        self.speed = 30.0   # px/sec kickstart; brain takes over within a few frames
+        self.vx = math.cos(self.heading) * self.speed
+        self.vy = math.sin(self.heading) * self.speed
 
         # Sensor outputs (updated each step, read by FlowEncoder)
         self.looming_left  = 0.0
