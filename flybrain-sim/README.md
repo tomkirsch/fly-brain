@@ -46,7 +46,16 @@ pip install -r requirements-neural.txt -r doom/requirements.txt
 > Note: DOOMFLY's README uses `--build-constraint` which older pip versions don't support.
 > The two-step install above achieves the same result.
 
-Then download the MaleCNS data and compile the CUDA kernel (same on all platforms):
+Then download the MaleCNS data (~1-2 GB). DOOMFLY's README uses a shell heredoc that
+doesn't work on Windows — use the download script instead:
+
+```
+cd ..
+python flybrain-sim/download_data.py
+cd doomfly
+```
+
+Then import and compile (same on all platforms):
 ```
 python -m doom.connectome malecns_v1
 python -m doom.prepare
