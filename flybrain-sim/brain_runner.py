@@ -72,19 +72,16 @@ def _reseed_driven(brain, drive: np.ndarray):
     return n
 
 # ---- read DN fire rates ----
-def read_dn_rates(counts: np.ndarray, groups: dict):
+def read_dn_rates(counts: np.ndarray, groups: dict, steps: int = 200):
     """
-    Returns (left_rate, right_rate) as spike counts per advance window.
+    Returns (left_rate, right_rate) normalized to a 200-tick equivalent so
+    SPEED_GAIN / TURN_GAIN in world.py are independent of --steps.
 
-    Uses DNa02 left/right directly. DNg100 was dropped: it is not downstream
-    of T4a in the MaleCNS circuit and remains silent regardless of FLOW_GAIN.
-
-    world.step() derives:
-      forward  = (left + right) / 2   → speed
-      turn_diff = right - left         → heading change
+    e.g. 1 spike in 50 ticks → 4.0 (same as 4 spikes in 200 ticks).
     """
-    left_rate  = counts[groups["dna02_left"]].mean()  if len(groups.get("dna02_left",  [])) else 0.0
-    right_rate = counts[groups["dna02_right"]].mean() if len(groups.get("dna02_right", [])) else 0.0
+    norm = 200.0 / steps
+    left_rate  = counts[groups["dna02_left"]].mean()  * norm if len(groups.get("dna02_left",  [])) else 0.0
+    right_rate = counts[groups["dna02_right"]].mean() * norm if len(groups.get("dna02_right", [])) else 0.0
     return left_rate, right_rate
 
 def _reset_state(brain, use_cuda, v=-52.0):
@@ -281,7 +278,7 @@ def main():
             # If nactive still blooms to 166k, lower FLOW_GAIN further.
 
             # 3. Read motor output
-            left_rate, right_rate = read_dn_rates(brain.counts, groups)
+            left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
 
             # 4. Update world physics
             world.step(left_rate, right_rate, dt=frame_dt)
