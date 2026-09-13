@@ -74,6 +74,7 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
         drive = encoder.encode(vx=5.0, vy=0.0, heading=0.0,
                                looming_left=0.0, looming_right=0.0)
         brain.drive[:] = drive
+        brain.drive[brain.lamina] = LAMINA_BIAS   # tonic bias keeps network alive
         brain.counts[:] = 0
         brain.cursor = _advance(brain, 200)
 
@@ -87,6 +88,8 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500):
 
     print("Target: dna02_left ~26, dna02_right ~2")
     print("Adjust FLOW_GAIN in flow_encoder.py if off.\n")
+
+LAMINA_BIAS = 12.0   # tonic current DOOMFLY applies to all lamina neurons each step
 
 def _advance(brain, steps: int):
     from doom.engine import advance
@@ -152,6 +155,7 @@ def main():
                 world.vx, world.vy, world.heading,
                 world.looming_left, world.looming_right,
             )
+            brain.drive[brain.lamina] = LAMINA_BIAS   # tonic bias keeps network alive
 
             # 2. Step 200 × 0.1ms LIF ticks
             brain.counts[:] = 0
