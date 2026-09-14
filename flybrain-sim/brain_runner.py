@@ -270,6 +270,8 @@ def main():
                         help="Print per-neuron candidate DN rates on contact frames")
     parser.add_argument("--mechanosensory-only", action="store_true",
                         help="Disable T4/T5 and LC4/LPLC2 visual input; keep contact input")
+    parser.add_argument("--no-mechanosensory", action="store_true",
+                        help="Ablate contact injection while retaining the same world/contact timing")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
@@ -329,6 +331,8 @@ def main():
     if args.mech_gain is not None:
         flow_encoder.MECH_GAIN = float(args.mech_gain)
         print(f"Mechanosensory gain override: {flow_encoder.MECH_GAIN:.2f}")
+    if args.no_mechanosensory:
+        print("Mechanosensory ablation: contact detector retained, injection disabled")
     if args.mechanosensory_only:
         # Keep the real contact encoder active, but remove the visual input
         # channels. This makes downstream activity attributable to JO-C/E
@@ -384,8 +388,8 @@ def main():
             # 1. Encode scene-based optical flow plus the contact state from
             # the previous world step. Keep the input values for diagnostics;
             # world.step() below computes the next contact state.
-            mech_input_l = world.mech_left
-            mech_input_r = world.mech_right
+            mech_input_l = 0.0 if args.no_mechanosensory else world.mech_left
+            mech_input_r = 0.0 if args.no_mechanosensory else world.mech_right
             drive = encoder.encode(
                 world.x, world.y, world.vx, world.vy, world.heading,
                 world.width, world.height, world.margin, world.obstacles,
