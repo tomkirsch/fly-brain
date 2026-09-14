@@ -33,6 +33,7 @@ BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
                              # was 3.0 for LPLC2 (adj peak ~1); DNp01 adj peak ~4 → scale ÷4
 BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
 CORNER_PRESS_FRAMES  = 4     # consecutive frames at a corner before forcing a heading kick
+WALL_PRESS_FRAMES    = 6     # consecutive frames sliding a single wall before collision kick
 
 
 class World:
@@ -51,6 +52,7 @@ class World:
         self.vy = math.sin(self.heading) * self.speed
         self._silent_frames = 0
         self._corner_frames = 0
+        self._wall_frames = 0
 
         # Per-step control decomposition for console/HUD diagnostics. These are
         # world-space translations of neural outputs, not extra control paths.
@@ -132,18 +134,30 @@ class World:
         elif self.y >= self.height - m:
             self.y = self.height - m; self.vy = min(0.0, self.vy)
 
-        # Corner press: fly pressed into two walls simultaneously → loom signals stay
-        # sub-threshold (both walls equal-distance → weak asymmetry → no scatter).
-        # Treat as tactile feedback: after CORNER_PRESS_FRAMES frames, kick heading 90°.
+        # Tactile collision responses: mechanosensory feedback when pressing a wall.
         at_h = (self.x <= m) or (self.x >= self.width  - m)
         at_v = (self.y <= m) or (self.y >= self.height - m)
         if at_h and at_v:
+            # Corner: both walls simultaneously — random ±90° kick
             self._corner_frames += 1
+            self._wall_frames = 0
             if self._corner_frames >= CORNER_PRESS_FRAMES:
                 self.heading += np.random.choice([-1.0, 1.0]) * (math.pi / 2)
                 self._corner_frames = 0
+        elif at_h or at_v:
+            # Single wall: face away from it (±60° random) after WALL_PRESS_FRAMES
+            self._corner_frames = 0
+            self._wall_frames += 1
+            if self._wall_frames >= WALL_PRESS_FRAMES:
+                if at_h:
+                    wall_away = math.pi if self.x >= self.width - m else 0.0
+                else:
+                    wall_away = 3 * math.pi / 2 if self.y >= self.height - m else math.pi / 2
+                self.heading = (wall_away + np.random.uniform(-math.pi / 3, math.pi / 3)) % (2 * math.pi)
+                self._wall_frames = 0
         else:
             self._corner_frames = 0
+            self._wall_frames = 0
 
         self._update_looming()
 
