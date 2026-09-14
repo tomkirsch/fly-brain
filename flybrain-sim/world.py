@@ -23,8 +23,11 @@ LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wa
 # LC4/LPLC2 fire significantly only when the fly is within ~67px of a wall:
 #   looming_input * LOOM_GAIN(12) must push LIF v_eq above -45mV threshold,
 #   which requires looming > 7/12 ≈ 0.58 → dist < 280*(1-sqrt(0.58)) ≈ 67px.
-BRAIN_LOOM_THRESHOLD = 1.5   # normalized spikes; below = T4/T5 baseline noise, ignore
-BRAIN_LOOM_TURN      = 0.5   # rad/sec per normalized loom-spike differential
+# Threshold is conservative (3.0) because LPLC2 baseline from T4/T5 connectivity
+# is unknown — keep it high until a calibration trace confirms the floor value.
+BRAIN_LOOM_THRESHOLD = 3.0   # normalized spikes; below = treat as baseline, ignore
+BRAIN_LOOM_TURN      = 1.0   # rad/sec per normalized loom-spike differential
+BRAIN_LOOM_SCATTER   = 4.0   # rad/sec random kick when BOTH eyes above threshold (corner/head-on)
 
 
 class World:
@@ -73,10 +76,15 @@ class World:
             self._silent_frames = 0
             # DN differential drives turning
             self.heading += turn_diff * TURN_GAIN * dt
-            # Neural looming escape: LC4/LPLC2 differential steers away from walls.
-            # loom_l > loom_r means left wall closer → turn right (positive heading).
+            # Neural looming escape: LC4/LPLC2 drives heading away from approaching walls.
+            # loom_l > loom_r → left wall closer → positive escape → turns right.
             if max(loom_l, loom_r) > BRAIN_LOOM_THRESHOLD:
-                self.heading += (loom_l - loom_r) * BRAIN_LOOM_TURN * dt
+                escape = (loom_l - loom_r) * BRAIN_LOOM_TURN * dt
+                # Both eyes above threshold: head-on approach or corner.
+                # Differential ≈ 0 here so we add a random decisive kick to break symmetry.
+                if min(loom_l, loom_r) > BRAIN_LOOM_THRESHOLD:
+                    escape += np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
+                self.heading += escape
 
         self.heading = self.heading % (2 * math.pi)
 
@@ -89,10 +97,17 @@ class World:
         self.x += self.vx * dt
         self.y += self.vy * dt
 
-        # Position clamp — keep fly in bounds; heading is handled by neural looming above
+        # Soft wall: clamp position and zero the inward velocity component so the fly
+        # doesn't keep trying to push through the margin boundary each frame.
         m = self.margin
-        self.x = max(m, min(self.width  - m, self.x))
-        self.y = max(m, min(self.height - m, self.y))
+        if self.x <= m:
+            self.x = m;           self.vx = max(0.0, self.vx)
+        elif self.x >= self.width - m:
+            self.x = self.width - m;  self.vx = min(0.0, self.vx)
+        if self.y <= m:
+            self.y = m;           self.vy = max(0.0, self.vy)
+        elif self.y >= self.height - m:
+            self.y = self.height - m; self.vy = min(0.0, self.vy)
 
         self._update_looming()
 

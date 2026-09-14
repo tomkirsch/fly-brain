@@ -150,9 +150,10 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500,
 
     # Intermediate layers to trace signal depth
     TRACE_KEYS = [
-        "t4a_left", "t4a_right",       # input layer
-        "lc4_left", "lc4_right",        # looming / lobula
-        "dna02_left", "dna02_right",    # target DNs
+        "t4a_left", "t4a_right",           # input layer
+        "lc4_left", "lc4_right",           # looming / lobula
+        "lplc2_left", "lplc2_right",       # looming escape (compare baseline to lc4)
+        "dna02_left", "dna02_right",       # target DNs
         "dng100_left", "dng100_right",
     ]
 
