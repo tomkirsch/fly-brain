@@ -20,14 +20,15 @@ WANDER_TURN  = 0.03   # rad/frame random drift
 LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wander mode
 
 # Neural looming escape (LC4/LPLC2 output read from brain)
-# LC4/LPLC2 fire significantly only when the fly is within ~67px of a wall:
-#   looming_input * LOOM_GAIN(12) must push LIF v_eq above -45mV threshold,
-#   which requires looming > 7/12 ≈ 0.58 → dist < 280*(1-sqrt(0.58)) ≈ 67px.
-# Threshold is conservative (3.0) because LPLC2 baseline from T4/T5 connectivity
-# is unknown — keep it high until a calibration trace confirms the floor value.
-BRAIN_LOOM_THRESHOLD = 3.0   # normalized spikes; below = treat as baseline, ignore
-BRAIN_LOOM_TURN      = 1.0   # rad/sec per normalized loom-spike differential
-BRAIN_LOOM_SCATTER   = 4.0   # rad/sec random kick when BOTH eyes above threshold (corner/head-on)
+# Calibration (--calibrate, no looming injected) confirmed LPLC2 baseline = ~2.1
+# from T4/T5 background connectivity.  Max near-wall signal = ~3.5.
+# Dynamic range is only 1.4 normalized spikes, so we subtract the baseline
+# before applying threshold and gain — working with wall-proximity ABOVE noise.
+# Tune BRAIN_LOOM_BASELINE if a fresh calibration shows a different floor.
+BRAIN_LOOM_BASELINE  = 2.0   # subtract: converts raw count to wall-proximity signal
+BRAIN_LOOM_THRESHOLD = 0.4   # adjusted spikes above baseline; ~0.4 = just outside open-field
+BRAIN_LOOM_TURN      = 3.0   # rad/sec per adjusted spike differential
+BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (corner/head-on)
 
 
 class World:
@@ -76,13 +77,15 @@ class World:
             self._silent_frames = 0
             # DN differential drives turning
             self.heading += turn_diff * TURN_GAIN * dt
-            # Neural looming escape: LC4/LPLC2 drives heading away from approaching walls.
-            # loom_l > loom_r → left wall closer → positive escape → turns right.
-            if max(loom_l, loom_r) > BRAIN_LOOM_THRESHOLD:
-                escape = (loom_l - loom_r) * BRAIN_LOOM_TURN * dt
-                # Both eyes above threshold: head-on approach or corner.
-                # Differential ≈ 0 here so we add a random decisive kick to break symmetry.
-                if min(loom_l, loom_r) > BRAIN_LOOM_THRESHOLD:
+            # Neural looming escape: subtract baseline (T4/T5 background ~2.1 from calibration)
+            # so we respond to wall-proximity signal above noise, not raw spike count.
+            adj_l = max(0.0, loom_l - BRAIN_LOOM_BASELINE)
+            adj_r = max(0.0, loom_r - BRAIN_LOOM_BASELINE)
+            if max(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
+                # adj_l > adj_r → left wall closer → positive escape → turns right
+                escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
+                # Both eyes above threshold: head-on or corner — add random kick
+                if min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
                     escape += np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
                 self.heading += escape
 
