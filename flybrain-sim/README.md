@@ -298,6 +298,61 @@ fly.html             browser canvas renderer (open directly, no server)
 
 ## What's neural vs what's programmed
 
+This distinction is the central project rule: the connectome determines the
+spikes *after* we inject synthetic sensory drive, but the surrounding adapter
+code determines what those spikes mean in the 2D world.
+
+### Controlled by us
+
+- The synthetic world: arena dimensions, wall geometry, obstacles, initial
+  state, collision/clamping, and the browser rendering.
+- The synthetic sensors: converting world velocity/wall distance into optical
+  flow and looming values, then injecting current directly into annotated
+  T4/T5 and LC4/LPLC2 groups. This bypasses the real retina/lamina pipeline.
+- The simulation operating point: `FLOW_GAIN`, `LOOM_GAIN`, `--steps`, frame
+  timing, baseline subtraction, thresholds, and the single-cell rate
+  normalization.
+- The motor adapter: `SPEED_GAIN`, `DRAG`, and `TURN_GAIN` convert spike counts
+  into pixels/sec and radians/sec. `TURN_GAIN` is not a learned or biological
+  constant; it is a user-adjustable unit conversion.
+- The looming adapter: LPLC2 is a sensory/intermediate output here. We map its
+  differential directly to heading, and currently add an explicit random
+  corner/scatter kick. This is a world-model assist, not a reconstructed
+  Giant-Fiber-to-wing-muscle pathway.
+- The browser interpolation/dead-reckoning and all visual colors/trails.
+
+### Determined by the neural system
+
+- LIF membrane integration, refractory behavior, synaptic delays, synaptic
+  weights, recurrent activity, and spike propagation through the 166,700-neuron
+  MaleCNS graph.
+- The response of downstream neurons to the injected drive, including the
+  observed DNa02 and LPLC2 spike counts. We do not manually set those counts.
+- Any asymmetry, delay, adaptation, or stochastic variation produced inside
+  the connectome. In particular, DNa02 is only one identified neuron per side,
+  so 4-vs-8 and occasional zero-count windows are expected single-cell
+  observations, not population averages.
+
+### Current honesty boundary
+
+The most neural part of the loop is:
+
+```text
+our synthetic flow → real connectome → real DNa02 spikes
+```
+
+The least neural part is:
+
+```text
+LPLC2 sensor spikes → our direct heading equation → world motion
+```
+
+At `TURN_GAIN=0`, DNa02 still fires but it contributes no heading change;
+the fly can continue roaming because the separate synthetic-looming adapter
+and its programmed corner scatter remain active. Therefore a good-looking
+trajectory at zero turn gain does not prove that DNa02 is driving navigation.
+Use the diagnostic turn terms below to separate the contributions.
+
 **Genuinely from the 166k-neuron connectome:**
 - DNa02 spike magnitude (~5-6 spikes/200-tick window) — real T4a → medulla → lobula → DN chain
 - Left/right differential — when lateral velocity creates asymmetric optical flow, the
@@ -323,6 +378,21 @@ the output stage of the escape circuit.
 bleed-through). To get a clean wall-proximity signal, `world.py` subtracts
 `BRAIN_LOOM_BASELINE = 2.0` before threshold and gain. This is analogous to
 contrast normalization in a downstream neuron adapting to the background drive.
+
+**Turn diagnostics:** recent `cuda-kernel` builds print and broadcast three
+heading-delta components:
+
+```text
+turn_dn       DNa02 differential × TURN_GAIN × dt
+turn_loom     baseline-subtracted LPLC2 differential × BRAIN_LOOM_TURN × dt
+scatter       explicit random corner-breaking kick
+```
+
+These are translations applied by `world.py`, not additional neural outputs.
+Run with `TURN_GAIN=0` to measure looming-only behavior, then compare with the
+same run at a nonzero gain. A stronger test is to temporarily disable looming
+and scatter in a controlled experiment, rather than tuning `TURN_GAIN` until
+the trajectory looks right.
 
 ## Neuron group sizes (MaleCNS)
 
@@ -360,6 +430,12 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
 
 ## Next
 
+- Run the new diagnostics and record `turn_dn`, `turn_loom`, and `scatter` at
+  `TURN_GAIN=0` and at the preferred value. Do not infer neural causality from
+  trajectory appearance alone.
+- Add explicit feature flags or CLI switches for `looming` and `scatter`, so
+  DNa02-only and looming-only experiments can be reproduced without editing
+  source.
 - **Find a command DN downstream of the Giant Fiber escape circuit** in the MaleCNS graph.
   Something that fires when LPLC2 fires and encodes escape direction. Read that instead
   of reading LPLC2 directly — would translate at the *command* level (like DNa02) rather

@@ -164,6 +164,50 @@ brain.cursor = advance(
 
 Needs NVIDIA GPU (RTX 3080 class or better) for real-time. CPU-only works but slower. Browser display can be any machine on the same network.
 
+## Current session checkpoint — 2026-09-13
+
+The Path A prototype runs on the `cuda-kernel` branch of
+`tomkirsch/fly-brain`. It loads 166,700 neurons and 25,582,938 synapses with
+synthetic 2D sensory drive. `--steps 50` is the practical interactive setting;
+200 ticks gives a longer within-window propagation interval.
+
+### Control boundary
+
+**We control:** the arena and browser, synthetic optical-flow and looming
+sensors, injection points and gains, simulation timing, baseline subtraction,
+thresholds, collision handling, and conversion from neural rates to world
+motion. `TURN_GAIN` is a tunable unit-conversion constant, not a value learned
+from the connectome. The looming path currently maps LPLC2 directly to heading
+and includes a programmed random corner scatter; it does not model Giant
+Fiber → thoracic motor neurons → wings.
+
+**The neural system controls:** all LIF state updates, synaptic transmission,
+delays, recurrent activity, and spike counts after injection. DNa02 and LPLC2
+are read from the simulated MaleCNS, not manually set. But mapping LPLC2
+directly to heading is our adapter, not a biological motor pathway.
+
+### Important finding
+
+`world.py` forces velocity to align with heading, so the relative lateral-flow
+term is approximately zero. The left/right DNa02 difference is therefore often
+single-neuron stochastic variation rather than strong self-generated optical
+flow asymmetry. At `TURN_GAIN=0`, the fly can still roam because the looming
+adapter remains active; a visually pleasing trajectory is not evidence that
+DNa02 caused it.
+
+The latest branch prints:
+
+```text
+turn_dn=...       # DNa02 differential mapped by TURN_GAIN
+turn_loom=...     # baseline-subtracted LPLC2 differential mapping
+scatter=...       # explicitly programmed random corner kick
+```
+
+Next test: compare these at zero and nonzero gain, then run controlled
+DNa02-only and looming-only experiments. The next biological upgrade is to
+identify an escape command neuron downstream of the looming pathway instead
+of mapping LPLC2 directly to heading.
+
 ## References
 
 - MaleCNS connectome: https://www.janelia.org/project-team/flyem/male-cns-connectome
