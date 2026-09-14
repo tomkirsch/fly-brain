@@ -34,6 +34,7 @@ BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
 BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
 CORNER_PRESS_FRAMES  = 4     # consecutive frames at a corner before forcing a heading kick
 WALL_PRESS_FRAMES    = 6     # consecutive frames sliding a single wall before collision kick
+MECH_CONTACT_FRAMES  = 3     # frames of sustained contact for full sensory pressure
 
 
 class World:
@@ -53,6 +54,10 @@ class World:
         self._silent_frames = 0
         self._corner_frames = 0
         self._wall_frames = 0
+        # Sensory output consumed by the next brain frame.  These are contact
+        # channels, not a shortcut to motor control.
+        self.mech_left = 0.0
+        self.mech_right = 0.0
 
         # Per-step control decomposition for console/HUD diagnostics. These are
         # world-space translations of neural outputs, not extra control paths.
@@ -138,26 +143,36 @@ class World:
         at_h = (self.x <= m) or (self.x >= self.width  - m)
         at_v = (self.y <= m) or (self.y >= self.height - m)
         if at_h and at_v:
-            # Corner: both walls simultaneously — random ±90° kick
+            # Corner: both walls simultaneously. Keep contact persistent so
+            # the neural mechanosensory experiment can receive it; do not
+            # apply the old scripted heading kick.
             self._corner_frames += 1
             self._wall_frames = 0
-            if self._corner_frames >= CORNER_PRESS_FRAMES:
-                self.heading += np.random.choice([-1.0, 1.0]) * (math.pi / 2)
-                self._corner_frames = 0
+            pressure = min(1.0, self._corner_frames / MECH_CONTACT_FRAMES)
+            self.mech_left = pressure
+            self.mech_right = pressure
         elif at_h or at_v:
-            # Single wall: face away from it (±60° random) after WALL_PRESS_FRAMES
+            # Single wall: expose sustained contact to the neural input.
             self._corner_frames = 0
             self._wall_frames += 1
-            if self._wall_frames >= WALL_PRESS_FRAMES:
-                if at_h:
-                    wall_away = math.pi if self.x >= self.width - m else 0.0
+            pressure = min(1.0, self._wall_frames / MECH_CONTACT_FRAMES)
+            # Left/right are body-side channels. For top/bottom contact, use
+            # the side toward which the fly is facing as a stable 2-D proxy.
+            if at_h:
+                if self.x <= m:
+                    self.mech_left = pressure
                 else:
-                    wall_away = 3 * math.pi / 2 if self.y >= self.height - m else math.pi / 2
-                self.heading = (wall_away + np.random.uniform(-math.pi / 3, math.pi / 3)) % (2 * math.pi)
-                self._wall_frames = 0
+                    self.mech_right = pressure
+            else:
+                if math.sin(self.heading) <= 0:
+                    self.mech_left = pressure
+                else:
+                    self.mech_right = pressure
         else:
             self._corner_frames = 0
             self._wall_frames = 0
+            self.mech_left = 0.0
+            self.mech_right = 0.0
 
         self._update_looming()
 
@@ -215,6 +230,8 @@ class World:
             "dn_turn": round(self.last_dn_turn, 4),
             "loom_turn": round(self.last_loom_turn, 4),
             "scatter_turn": round(self.last_scatter_turn, 4),
+            "mech_left": round(self.mech_left, 3),
+            "mech_right": round(self.mech_right, 3),
             "width": self.width,
             "height": self.height,
             "obstacles": self.obstacles,

@@ -60,7 +60,14 @@ TARGET_TYPES = {
     "dnp01_right": ("DNp01",  "R"),
     "dnp103_left": ("DNp103", "L"),
     "dnp103_right":("DNp103", "R"),
+    # Mechanosensory groups are populated by the prefix scan below.  The
+    # MaleCNS annotation vocabulary has changed between exports, so these are
+    # deliberately not hard-coded to one JON/chordotonal subtype.
+    "mech_left": ("__DISCOVER__", "L"),
+    "mech_right": ("__DISCOVER__", "R"),
 }
+
+MECH_TYPE_RE = r"(?i)(jon|johnston|chordot|campaniform|mechanosens|proprio)"
 
 # Some type names may differ slightly in the annotations — aliases tried if primary fails.
 TYPE_ALIASES = {
@@ -71,6 +78,28 @@ TYPE_ALIASES = {
     "LPLC2":  ["LPLC2", "lplc2"],
     "LC4":    ["LC4", "lc4"],
 }
+
+
+def resolve_doomfly(path: str) -> Path:
+    """Resolve DOOMFLY from cwd, flybrain-sim, or fly-brain repo root."""
+    requested = Path(path).expanduser()
+    candidates = [requested]
+    if not requested.is_absolute():
+        here = Path(__file__).resolve().parent
+        candidates.extend([here / requested, here.parent / requested, here.parent / "doomfly"])
+    seen = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if (resolved / "doom").is_dir():
+            return resolved
+    print("ERROR: DOOMFLY not found; checked:")
+    for candidate in candidates:
+        print(f"  {candidate.resolve()}")
+    print("Put DOOMFLY at ../doomfly or pass --doomfly /path/to/doomfly")
+    sys.exit(1)
 
 
 def load_annotations(doomfly_path: Path):
@@ -124,7 +153,7 @@ def load_graph(doomfly_path: Path):
 # ── list-types mode ─────────────────────────────────────────────────────────
 
 def cmd_list_types(args):
-    doomfly_path = Path(args.doomfly).resolve()
+    doomfly_path = resolve_doomfly(args.doomfly)
     df = load_annotations(doomfly_path)
     _, type_col, _ = get_col_names(df)
     if type_col is None:
@@ -142,7 +171,7 @@ def cmd_list_types(args):
 # ── trace-from mode ──────────────────────────────────────────────────────────
 
 def cmd_trace_from(args):
-    doomfly_path = Path(args.doomfly).resolve()
+    doomfly_path = resolve_doomfly(args.doomfly)
     top_n = args.top
 
     data, brain_ids = load_graph(doomfly_path)
@@ -206,7 +235,7 @@ def cmd_trace_from(args):
 # ── main identify mode ───────────────────────────────────────────────────────
 
 def cmd_identify(args):
-    doomfly_path = Path(args.doomfly).resolve()
+    doomfly_path = resolve_doomfly(args.doomfly)
 
     data, brain_ids = load_graph(doomfly_path)
     print(f"Loading graph from {doomfly_path / 'outputs/doom/malecns_v1/graph.npz'}...")
@@ -227,7 +256,13 @@ def cmd_identify(args):
     missing = []
 
     for group_key, (type_name, side) in TARGET_TYPES.items():
-        type_mask = resolve_type(df, type_col, type_name)
+        if type_name == "__DISCOVER__":
+            # Keep this broad at discovery time; the resulting JSON is the
+            # auditable list of annotation types that actually existed in the
+            # downloaded release.
+            type_mask = df[type_col].astype(str).str.contains(MECH_TYPE_RE, regex=True, na=False)
+        else:
+            type_mask = resolve_type(df, type_col, type_name)
         if side_col:
             side_mask = df[side_col].astype(str).str.upper().str.startswith(side)
             mask = type_mask & side_mask

@@ -32,12 +32,37 @@ def cuda_available() -> bool:
 
 # ---- locate DOOMFLY ----
 def find_doomfly(path: str) -> Path:
-    p = Path(path).resolve()
-    if not (p / "doom" / "engine.py").exists():
-        print(f"ERROR: DOOMFLY not found at {p}")
-        print("Clone it with: git clone https://github.com/nftechie/doomfly ../doomfly")
-        sys.exit(1)
-    return p
+    """Resolve DOOMFLY from an explicit path or either repo layout.
+
+    The simulator is commonly launched from the flybrain-sim directory, but
+    users also launch it from the fly-brain repo root.  Resolve relative paths
+    against both cwd and this file's parent so --doomfly is not required on
+    every invocation.
+    """
+    requested = Path(path).expanduser()
+    candidates = [requested]
+    if not requested.is_absolute():
+        candidates.append(Path(__file__).resolve().parent / requested)
+        candidates.append(Path(__file__).resolve().parent.parent / requested)
+    # The default ../doomfly from flybrain-sim, and doomfly from repo root.
+    candidates.extend([
+        Path(__file__).resolve().parent.parent / "doomfly",
+        Path(__file__).resolve().parent / ".." / "doomfly",
+    ])
+    seen = set()
+    for candidate in candidates:
+        p = candidate.resolve()
+        if p in seen:
+            continue
+        seen.add(p)
+        if (p / "doom" / "engine.py").exists():
+            return p
+    p = candidates[0].resolve()
+    print(f"ERROR: DOOMFLY not found; checked:")
+    for candidate in candidates:
+        print(f"  {candidate.resolve()}")
+    print("Clone it into fly-brain/doomfly or pass --doomfly /path/to/doomfly")
+    sys.exit(1)
 
 # ---- neuron group loading ----
 def load_groups(groups_path: Path, brain_ids: np.ndarray) -> dict:
@@ -294,6 +319,7 @@ def main():
     init_drive = encoder.encode(
         x=world.x, y=world.y, vx=1.0, vy=0.0, heading=world.heading,
         world_width=world.width, world_height=world.height, margin=world.margin,
+        mech_l=world.mech_left, mech_r=world.mech_right,
     )
     if not use_cuda:
         _reseed_driven(brain, init_drive)
@@ -314,6 +340,7 @@ def main():
             drive = encoder.encode(
                 world.x, world.y, world.vx, world.vy, world.heading,
                 world.width, world.height, world.margin, world.obstacles,
+                mech_l=world.mech_left, mech_r=world.mech_right,
             )
             brain.drive[:] = drive
 
@@ -352,6 +379,8 @@ def main():
                 state.update({
                     "left_rate":  round(float(left_rate),  2),
                     "right_rate": round(float(right_rate), 2),
+                    "mech_left": round(float(world.mech_left), 3),
+                    "mech_right": round(float(world.mech_right), 3),
                     "frame": frame,
                 })
                 ws.broadcast(state)

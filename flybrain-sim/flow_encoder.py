@@ -43,6 +43,7 @@ import numpy as np
 # Target: dna02 at 3–8 spikes/200-tick window; nactive < 100k.
 FLOW_GAIN = 150.0   # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
 LOOM_GAIN = 1.0     # mV per unit expansion ray-sum (start point; retune with --calibrate)
+MECH_GAIN = 8.0     # mV per normalized contact pressure; calibrate against mech groups
 
 NUM_RAYS = 72       # panoramic columns; 360/72 = 5° per ray
 
@@ -68,7 +69,8 @@ class FlowEncoder:
 
     def encode(self, x: float, y: float, vx: float, vy: float, heading: float,
                world_width: float = 800, world_height: float = 600,
-               margin: float = 40.0, obstacles: list = None) -> np.ndarray:
+               margin: float = 40.0, obstacles: list = None,
+               mech_l: float = 0.0, mech_r: float = 0.0) -> np.ndarray:
         """
         Returns drive array shape (n_neurons,) with injection currents in mV.
 
@@ -77,6 +79,9 @@ class FlowEncoder:
         heading           : radians, 0 = right, π/2 = down
         world_width/height, margin : arena geometry (must match World init)
         obstacles         : list of {cx, cy, r} dicts (from World.obstacles)
+        mech_l, mech_r     : contact pressure from left/right body side, 0..1.
+                             This is injected into annotated mechanosensory
+                             neurons, not directly into motor neurons.
         """
         speed = math.sqrt(vx * vx + vy * vy)
 
@@ -122,6 +127,8 @@ class FlowEncoder:
         self._inject(drive, "lplc2_left",  left_loom  * LOOM_GAIN)
         self._inject(drive, "lc4_right",   right_loom * LOOM_GAIN)
         self._inject(drive, "lplc2_right", right_loom * LOOM_GAIN)
+        self._inject(drive, "mech_left",    max(0.0, mech_l) * MECH_GAIN)
+        self._inject(drive, "mech_right",   max(0.0, mech_r) * MECH_GAIN)
 
         return drive
 

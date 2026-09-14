@@ -331,10 +331,12 @@ code determines what those spikes mean in the 2D world.
   and map to heading change (turn) or a random kick (scatter when both eyes at max).
   DNp01 is a single neuron per side and quantizes coarsely — wall-gradient steering
   is sparse compared to using the LPLC2 population directly.
-- **Scripted tactile fallbacks:** `corner_press` (both walls, 4 frames) and
-  `wall_press` (single wall, 6 frames) in `world.py` apply heading kicks with no
-  neural involvement. These stand in for mechanosensory contact pathways (Johnston's
-  organ, leg mechanoreceptors) that are in MaleCNS but not yet wired as inputs.
+- **Mechanosensory contact input:** wall contact now produces debounced left/right
+  pressure values in `world.py`, which are injected into discovered mechanosensory
+  annotation groups by `flow_encoder.py` (`MECH_GAIN`). The old scripted corner/wall
+  heading kicks are removed, so escape behavior must come from the connectome. This
+  is an integration scaffold, not biological validation: MaleCNS annotations must
+  be present and candidate types still need downstream tracing.
 - The browser interpolation/dead-reckoning and all visual colors/trails.
 
 ### Determined by the neural system
@@ -474,13 +476,13 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
   looming-only experiments are reproducible without editing source. Currently you must
   zero constants manually.
 
-- **Mechanosensory injection** — replace scripted corner-press/wall-press with genuine
-  neural input. Real flies use Johnston's organ (antennal) and leg mechanoreceptors for
-  contact/collision detection; these neurons exist in MaleCNS. Steps: (1) search MaleCNS
-  annotation for JON/chordotonal neuron types, (2) inject contact-triggered current when
-  fly is at wall boundary, (3) calibrate and verify downstream escape circuit fires.
-  Moderate effort (~same as adding LC4/LPLC2 expansion signal). Main unknown: whether
-  the annotated mechanosensory types in MaleCNS actually connect to escape circuits.
+- **Mechanosensory validation** — `identify_neurons.py` discovers bilateral
+  annotation rows matching JON/Johnston/chordotonal/campaniform/mechanosensory/
+  proprioceptive labels into `mech_left`/`mech_right`. Once annotations are available,
+  list each family, regenerate `neuron_groups.json`, trace each candidate with
+  `--trace-from`, calibrate `MECH_GAIN`, and verify that contact changes downstream
+  escape/motor activity. The broad discovery is intentionally temporary; split groups
+  by validated biological type before treating results as evidence.
 
 - **Add obstacles** — `world.obstacles` accepts `{cx, cy, r}` dicts already; just populate
   them. Tests richer navigation and whether expansion signal handles convex obstacles the
