@@ -1,50 +1,66 @@
 """
-Synthetic optical flow encoder.
+Scene-based optical flow encoder.
 
-Converts fly velocity + heading into drive currents for T4/T5 and looming
-neurons, replacing the webcam + Farneback pipeline.
+Replaces the analytical fwd+lat formula which gave lat≈0 always
+(velocity always aligned with heading → no genuine L/R asymmetry).
 
-T4/T5 direction convention (from boat.horse article):
-  "front-to-back on the left eye is leftward image motion"
-  "T4/T5 subtype a in both eyes gives DNa02 left 26 Hz vs right 2 Hz"
+This version ray-casts the 2D arena from the fly's current position:
 
-So T4a = front-to-back motion detector.
+  - NUM_RAYS evenly spaced across 360°, 5° per column.
+  - Each ray at world angle φ measures distance d(φ) to nearest wall/obstacle.
+  - Angular velocity (flow): ω(φ) = speed·sin(heading−φ) / d(φ)
+    > 0 on left eye (counterclockwise = front-to-back), < 0 on right
 
-For a fly at heading θ moving with velocity (vx, vy):
-  - forward component: fwd = vx*cos(θ) + vy*sin(θ)
-  - lateral component: lat = -vx*sin(θ) + vy*cos(θ)  (positive = rightward)
+Hemifields (relative to heading):
+  Left eye  : offset ∈ (180°, 360°)  i.e., the left semicircle
+  Right eye : offset ∈ [0°, 180°]    i.e., the right semicircle (incl. forward)
 
-Left eye sees: front-to-back (T4a) ∝ fwd + lat  (outer flow faster when turning)
-Right eye sees: front-to-back (T4a) ∝ fwd - lat
+T4a/T5a   → front-to-back flow per eye (sum of positive ω on left, negative on right)
+T4b/T5b   → back-to-front flow (opposite direction)
+LC4/LPLC2 → injected directly from geometric looming_left/right (see below)
 
-CALIBRATION (boat.horse reference):
-  "T4a in both eyes → DNa02 left 26 Hz vs right 2 Hz" is a biological rate.
-  In the sim (200 LIF ticks = 20ms per window), 26 Hz = ~0.5 spikes/window.
-  With FLOW_GAIN=20 we see ~6 spikes/window (fine for navigation; well below
-  the ~9-spike physical max set by the 2.2ms refractory period).
-  Do NOT chase the "26" number — tune for stable 3-8 spikes/window instead.
-  Use brain_runner.py --calibrate to check.
+Asymmetry example: fly near the top wall while heading right.
+  "Up" rays (offset ~270°) are in the left eye and hit the top wall at ~40 px.
+  "Down" rays (offset ~90°) are in the right eye and hit the bottom wall at ~480 px.
+  Left T4a/T5a signal is 9× right → genuine DNa02 differential.
+
+LOOMING NOTE: LC4/LPLC2 continue to receive world.py's geometric looming values
+  (same as before), NOT ray-cast values. The ray-cast looming places "forward" in
+  the right eye, creating a systematic right bias when approaching any wall head-on —
+  incorrect for the directional escape logic in world.py which expects left/right to
+  map to geographic left/right. Geometric looming is kept until we have a proper
+  3D scene-based expansion signal. This is a known simplification.
+
+Gains:
+  The old FLOW_GAIN=20 was calibrated for the analytical formula (left_ftb = speed).
+  The polar-scan raw sum at baseline is ~8× smaller, so FLOW_GAIN=150 is the new
+  starting point. Re-tune with brain_runner.py --calibrate (target: 3–8 spikes/window).
 """
 
+import math
 import numpy as np
 
 
-# FLOW_GAIN=20 gives dna02 ~6 spikes/200-tick window (≈300 Hz sim-rate, well above
-# biological 26 Hz but adequate for navigation). Max achievable ≈ 9 (refractory-limited).
-# Lower if nactive blooms past 150k; raise only if dna02 stays at 0.
-FLOW_GAIN = 20.0   # mV per unit flow
-LOOM_GAIN = 12.0   # mV per unit looming (0-1 range)
+# ── Tuning ────────────────────────────────────────────────────────────────────
+# Re-tune with --calibrate after any world-size or ray-count change.
+# Target: dna02 at 3–8 spikes/200-tick window; nactive < 100k.
+FLOW_GAIN = 150.0   # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
+LOOM_GAIN = 3.0     # mV per unit looming ray-sum (tune once flow is stable)
+
+NUM_RAYS = 72       # panoramic columns; 360/72 = 5° per ray
 
 
 class FlowEncoder:
     def __init__(self, groups: dict, n_neurons: int):
-        """
-        groups: dict from neuron_groups.json, values are lists of internal indices.
-        n_neurons: total neuron count (brain.n).
-        """
         self.n = n_neurons
-        # Convert to numpy arrays for fast indexing
         self._g = {k: np.array(v, dtype=np.int32) for k, v in groups.items()}
+        # Precomputed offsets [0, 2π) so angles = heading + offsets each frame
+        self._offsets = np.linspace(0, 2 * math.pi, NUM_RAYS, endpoint=False)
+        # Precomputed hemifield masks (independent of heading because offsets are relative)
+        # offset=0 is forward → right eye; offset>180° is left eye
+        rel = (self._offsets + math.pi) % (2 * math.pi) - math.pi
+        self._left_mask  = (rel < 0)
+        self._right_mask = ~self._left_mask
         self._report_coverage()
 
     def _report_coverage(self):
@@ -53,50 +69,109 @@ class FlowEncoder:
             arr = self._g.get(k, np.array([], dtype=np.int32))
             print(f"  FlowEncoder {k}: {len(arr)} neurons")
 
-    def encode(self, vx: float, vy: float, heading: float,
-               looming_left: float, looming_right: float) -> np.ndarray:
+    def encode(self, x: float, y: float, vx: float, vy: float, heading: float,
+               world_width: float = 800, world_height: float = 600,
+               margin: float = 40.0, obstacles: list = None,
+               looming_left: float = 0.0, looming_right: float = 0.0) -> np.ndarray:
         """
         Returns drive array shape (n_neurons,) with injection currents in mV.
 
-        vx, vy: velocity in world-pixels/frame
-        heading: radians, 0 = right, π/2 = down
-        looming_left/right: 0-1, rate of approach to nearest obstacle in each hemifield
+        x, y              : fly world position
+        vx, vy            : velocity in world-pixels/sec
+        heading           : radians, 0 = right, π/2 = down
+        world_width/height, margin : arena geometry (must match World init)
+        obstacles         : list of {cx, cy, r} dicts (from World.obstacles)
+        looming_left/right: geometric looming from world.py (0–1); injected into
+                            LC4/LPLC2 directly (see module docstring for why)
         """
+        speed = math.sqrt(vx * vx + vy * vy)
+
+        angles = heading + self._offsets          # absolute world angles for each ray
+        d = self._ray_distances(x, y, angles,
+                                world_width, world_height, margin,
+                                obstacles or [])
+
+        # Per-column translational optic flow
+        # v_perp > 0  → counterclockwise → front-to-back for left eye
+        # v_perp < 0  → clockwise        → front-to-back for right eye
+        v_perp = speed * np.sin(heading - angles)
+        inv_d  = 1.0 / d
+
+        lm = self._left_mask
+        rm = self._right_mask
+
+        # ── T4a/T5a (front-to-back) ────────────────────────────────────────────
+        left_ftb  = float(np.dot(lm, np.maximum(0.0,  v_perp)  * inv_d))
+        right_ftb = float(np.dot(rm, np.maximum(0.0, -v_perp)  * inv_d))
+
+        # ── T4b/T5b (back-to-front) ────────────────────────────────────────────
+        left_btf  = float(np.dot(lm, np.maximum(0.0, -v_perp)  * inv_d))
+        right_btf = float(np.dot(rm, np.maximum(0.0,  v_perp)  * inv_d))
+
         drive = np.zeros(self.n, dtype=np.float32)
-
-        cos_h = np.cos(heading)
-        sin_h = np.sin(heading)
-
-        # Velocity in fly-relative frame
-        fwd = vx * cos_h + vy * sin_h      # positive = moving forward
-        lat = -vx * sin_h + vy * cos_h     # positive = drifting right
-
-        # Front-to-back flow per eye (positive when fly moves forward)
-        left_ftb  = max(0.0,  fwd + lat) * FLOW_GAIN   # T4a/T5a left
-        right_ftb = max(0.0,  fwd - lat) * FLOW_GAIN   # T4a/T5a right
-        left_btf  = max(0.0, -fwd - lat) * FLOW_GAIN   # T4b/T5b left (reverse flow)
-        right_btf = max(0.0, -fwd + lat) * FLOW_GAIN   # T4b/T5b right
-
-        self._inject(drive, "t4a_left",  left_ftb)
-        self._inject(drive, "t5a_left",  left_ftb)
-        self._inject(drive, "t4a_right", right_ftb)
-        self._inject(drive, "t5a_right", right_ftb)
-        self._inject(drive, "t4b_left",  left_btf)
-        self._inject(drive, "t5b_left",  left_btf)
-        self._inject(drive, "t4b_right", right_btf)
-        self._inject(drive, "t5b_right", right_btf)
-
-        # Looming detectors
+        self._inject(drive, "t4a_left",    left_ftb   * FLOW_GAIN)
+        self._inject(drive, "t5a_left",    left_ftb   * FLOW_GAIN)
+        self._inject(drive, "t4a_right",   right_ftb  * FLOW_GAIN)
+        self._inject(drive, "t5a_right",   right_ftb  * FLOW_GAIN)
+        self._inject(drive, "t4b_left",    left_btf   * FLOW_GAIN)
+        self._inject(drive, "t5b_left",    left_btf   * FLOW_GAIN)
+        self._inject(drive, "t4b_right",   right_btf  * FLOW_GAIN)
+        self._inject(drive, "t5b_right",   right_btf  * FLOW_GAIN)
+        # LC4/LPLC2 from geometric looming (world.py formula) — see module docstring
         ll = looming_left  * LOOM_GAIN
         lr = looming_right * LOOM_GAIN
-        self._inject(drive, "lc4_left",   ll)
-        self._inject(drive, "lplc2_left", ll)
-        self._inject(drive, "lc4_right",  lr)
-        self._inject(drive, "lplc2_right",lr)
+        self._inject(drive, "lc4_left",    ll)
+        self._inject(drive, "lplc2_left",  ll)
+        self._inject(drive, "lc4_right",   lr)
+        self._inject(drive, "lplc2_right", lr)
 
         return drive
+
+    def _ray_distances(self, x: float, y: float, angles: np.ndarray,
+                       W: float, H: float, m: float,
+                       obstacles: list) -> np.ndarray:
+        """
+        Cast rays from (x, y) in each direction.
+        Returns distances to the nearest wall or obstacle, clipped to ≥ 1.0.
+        """
+        cos_a = np.cos(angles)
+        sin_a = np.sin(angles)
+        d = np.full(len(angles), 1e6, dtype=np.float64)
+
+        # Axis-aligned arena walls (boundary at margin m)
+        _wall(d, cos_a,  W - m - x)   # right wall:  x = W-m
+        _wall(d, cos_a,  m - x)       # left wall:   x = m
+        _wall(d, sin_a,  H - m - y)   # bottom wall: y = H-m
+        _wall(d, sin_a,  m - y)       # top wall:    y = m
+
+        # Circular obstacles
+        for obs in obstacles:
+            dx = obs["cx"] - x
+            dy = obs["cy"] - y
+            b = -(cos_a * dx + sin_a * dy) * 2
+            c = dx * dx + dy * dy - obs["r"] * obs["r"]
+            disc = b * b - 4.0 * c
+            hit = disc >= 0
+            sq = np.where(hit, np.sqrt(np.maximum(0.0, disc)), 0.0)
+            t1 = np.where(hit, (-b - sq) * 0.5, 1e6)
+            t2 = np.where(hit, (-b + sq) * 0.5, 1e6)
+            t_near = np.where(t1 > 1e-3, t1, np.where(t2 > 1e-3, t2, 1e6))
+            np.minimum(d, np.where(hit & (t_near > 0), t_near, 1e6), out=d)
+
+        return np.maximum(d, 1.0)
 
     def _inject(self, drive: np.ndarray, key: str, value: float):
         idx = self._g.get(key)
         if idx is not None and len(idx) > 0 and value > 0:
             drive[idx] = value
+
+
+def _wall(d: np.ndarray, component: np.ndarray, signed_dist: float):
+    """
+    Update minimum distance for an axis-aligned wall.
+
+    t = signed_dist / component.  Valid (positive) only when both have the
+    same sign — i.e., ray is pointing toward that wall from inside the arena.
+    """
+    t = np.where(np.abs(component) > 1e-6, signed_dist / component, 1e6)
+    np.minimum(d, np.where(t > 1e-3, t, 1e6), out=d)

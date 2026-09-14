@@ -113,7 +113,8 @@ def _reset_state(brain, use_cuda, v=-52.0):
 
 # ---- calibration helper ----
 def run_calibration(brain, groups: dict, encoder, steps: int = 500,
-                    use_cuda: bool = False, do_advance=None):
+                    use_cuda: bool = False, do_advance=None,
+                    width: int = 800, height: int = 600):
     """
     Inject constant symmetric forward flow (both eyes), check DNa02 response.
 
@@ -139,8 +140,10 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500,
     _reset_state(brain, use_cuda)
 
     # Seed once — drive propagates continuously from here
-    drive = encoder.encode(vx=5.0, vy=0.0, heading=0.0,
-                           looming_left=0.0, looming_right=0.0)
+    drive = encoder.encode(
+        x=width / 2, y=height / 2, vx=5.0, vy=0.0, heading=0.0,
+        world_width=width, world_height=height,
+    )
     brain.drive[:] = drive
     if use_cuda:
         n_driven = int((drive != 0).sum())  # GPU runs all neurons; no active set
@@ -260,13 +263,16 @@ def main():
     if args.calibrate:
         print("First advance will JIT-compile Numba kernel (~30-60s) ...")
         run_calibration(brain, groups, encoder, use_cuda=use_cuda,
-                        do_advance=do_advance)
+                        do_advance=do_advance,
+                        width=args.width, height=args.height)
         # Continue into main loop after calibration
 
     # One-time seed: put T4/T5 driven neurons into the active set so the first
     # advance has something to propagate. After this we never wipe the active set.
-    init_drive = encoder.encode(vx=1.0, vy=0.0, heading=0.0,
-                                looming_left=0.0, looming_right=0.0)
+    init_drive = encoder.encode(
+        x=world.x, y=world.y, vx=1.0, vy=0.0, heading=world.heading,
+        world_width=world.width, world_height=world.height, margin=world.margin,
+    )
     if not use_cuda:
         _reseed_driven(brain, init_drive)
 
@@ -282,10 +288,11 @@ def main():
         while True:
             t0 = time.monotonic()
 
-            # 1. Encode synthetic optical flow → drive array
+            # 1. Encode scene-based optical flow → drive array
             drive = encoder.encode(
-                world.vx, world.vy, world.heading,
-                world.looming_left, world.looming_right,
+                world.x, world.y, world.vx, world.vy, world.heading,
+                world.width, world.height, world.margin, world.obstacles,
+                looming_left=world.looming_left, looming_right=world.looming_right,
             )
             brain.drive[:] = drive
 
