@@ -386,6 +386,18 @@ def main():
             escape_l, escape_r, escape_src = read_escape_dn_rates(brain.counts, groups, args.steps)
             mech_rate, mech_peak, mech_active = read_group_stats(
                 brain.counts, groups, "mech_static", args.steps)
+            # Contact-window downstream diagnostics. These are reported as
+            # normalized rates so a contact frame can be compared directly
+            # with the existing visual/looming DN rates.
+            contact_dn_keys = ("dna02_left", "dna02_right", "dnp01_left", "dnp01_right",
+                               "dnp18_left", "dnp18_right", "dnp33_left", "dnp33_right",
+                               "dnp55_left", "dnp55_right", "dnp73_left", "dnp73_right",
+                               "dng29_left", "dng29_right", "dng99_left", "dng99_right")
+            contact_dn_rates = {
+                key: read_group_rate(brain.counts, groups, key, args.steps)
+                for key in contact_dn_keys
+            }
+            contact_dn_peak = max(contact_dn_rates.values(), default=0.0)
 
             # 4. Update world physics — use real wall-clock dt so fly speed is
             # independent of GPU throughput (rt=7x was making it 7× too slow).
@@ -407,6 +419,8 @@ def main():
                     "mech_rate": round(mech_rate, 2),
                     "mech_peak": round(mech_peak, 2),
                     "mech_active": mech_active,
+                    "contact_dn": contact_dn_rates,
+                    "contact_dn_peak": round(contact_dn_peak, 2),
                     "frame": frame,
                 })
                 ws.broadcast(state)
@@ -427,6 +441,7 @@ def main():
                       f"  mech_in={mech_input_l:.2f}/{mech_input_r:.2f}"
                       f" mech_spk={mech_rate:.2f}"
                       f" mech_peak={mech_peak:.1f} active={mech_active}"
+                      f" dn_peak={contact_dn_peak:.1f}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
                       f"  turn_loom={world.last_loom_turn:+.2f}"
                       f"  scatter={world.last_scatter_turn:+.2f}"
