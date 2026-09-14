@@ -25,9 +25,12 @@ LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wa
 # Dynamic range is only 1.4 normalized spikes, so we subtract the baseline
 # before applying threshold and gain — working with wall-proximity ABOVE noise.
 # Tune BRAIN_LOOM_BASELINE if a fresh calibration shows a different floor.
-BRAIN_LOOM_BASELINE  = 2.0   # subtract: converts raw count to wall-proximity signal
-BRAIN_LOOM_THRESHOLD = 0.4   # adjusted spikes above baseline; ~0.4 = just outside open-field
-BRAIN_LOOM_TURN      = 3.0   # rad/sec per adjusted spike differential
+BRAIN_LOOM_BASELINE  = 4.0   # subtract: converts raw count to wall-proximity signal
+                             # DNp01 open-field baseline ~4-5 spikes/window (was 2.0 for LPLC2)
+BRAIN_LOOM_THRESHOLD = 0.4   # adjusted spikes above baseline; DNp01 quantizes 0→4→8 so
+                             # threshold fires when esc = 8 (adj = 4)
+BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
+                             # was 3.0 for LPLC2 (adj peak ~1); DNp01 adj peak ~4 → scale ÷4
 BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
 CORNER_PRESS_FRAMES  = 4     # consecutive frames at a corner before forcing a heading kick
 

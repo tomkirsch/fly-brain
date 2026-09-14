@@ -171,5 +171,6 @@ def _wall(d: np.ndarray, component: np.ndarray, signed_dist: float):
     t = signed_dist / component.  Valid (positive) only when both have the
     same sign — i.e., ray is pointing toward that wall from inside the arena.
     """
-    t = np.where(np.abs(component) > 1e-6, signed_dist / component, 1e6)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(np.abs(component) > 1e-6, signed_dist / component, 1e6)
     np.minimum(d, np.where(t > 1e-3, t, 1e6), out=d)
