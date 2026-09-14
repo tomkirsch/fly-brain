@@ -353,11 +353,15 @@ def main():
         while True:
             t0 = time.monotonic()
 
-            # 1. Encode scene-based optical flow → drive array
+            # 1. Encode scene-based optical flow plus the contact state from
+            # the previous world step. Keep the input values for diagnostics;
+            # world.step() below computes the next contact state.
+            mech_input_l = world.mech_left
+            mech_input_r = world.mech_right
             drive = encoder.encode(
                 world.x, world.y, world.vx, world.vy, world.heading,
                 world.width, world.height, world.margin, world.obstacles,
-                mech_l=world.mech_left, mech_r=world.mech_right,
+                mech_l=mech_input_l, mech_r=mech_input_r,
             )
             brain.drive[:] = drive
 
@@ -398,8 +402,8 @@ def main():
                 state.update({
                     "left_rate":  round(float(left_rate),  2),
                     "right_rate": round(float(right_rate), 2),
-                    "mech_left": round(float(world.mech_left), 3),
-                    "mech_right": round(float(world.mech_right), 3),
+                    "mech_left": round(float(mech_input_l), 3),
+                    "mech_right": round(float(mech_input_r), 3),
                     "mech_rate": round(mech_rate, 2),
                     "mech_peak": round(mech_peak, 2),
                     "mech_active": mech_active,
@@ -420,7 +424,7 @@ def main():
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
                       f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
                       f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
-                      f"  mech={world.mech_left:.2f}/{world.mech_right:.2f}"
+                      f"  mech_in={mech_input_l:.2f}/{mech_input_r:.2f}"
                       f" mech_spk={mech_rate:.2f}"
                       f" mech_peak={mech_peak:.1f} active={mech_active}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
