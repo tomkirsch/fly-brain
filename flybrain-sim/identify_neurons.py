@@ -51,9 +51,15 @@ TARGET_TYPES = {
     "dng100_right":("DNg100", "R"),
     "dng13_left":  ("DNg13", "L"),
     "dng13_right": ("DNg13", "R"),
-    # Giant Fiber escape circuit
-    "gf_left":  ("GF", "L"),
-    "gf_right": ("GF", "R"),
+    # Giant Fiber escape circuit — GF absent from MaleCNS annotation;
+    # DNp01 and DNp103 are the top DN targets of LPLC2 by synaptic weight
+    # (trace-from LPLC2: DNp01 L=727/R=611, DNp103 R=788/L=605)
+    "gf_left":    ("GF",     "L"),   # kept for alias search; likely absent
+    "gf_right":   ("GF",     "R"),
+    "dnp01_left":  ("DNp01",  "L"),
+    "dnp01_right": ("DNp01",  "R"),
+    "dnp103_left": ("DNp103", "L"),
+    "dnp103_right":("DNp103", "R"),
 }
 
 # Some type names may differ slightly in the annotations — aliases tried if primary fails.

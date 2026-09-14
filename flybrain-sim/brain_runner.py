@@ -102,6 +102,27 @@ def read_looming_rates(counts: np.ndarray, groups: dict, steps: int = 200):
         loom_r = counts[groups["lc4_right"]].mean() * norm if len(groups.get("lc4_right", [])) else 0.0
     return float(loom_l), float(loom_r)
 
+def read_escape_dn_rates(counts: np.ndarray, groups: dict, steps: int = 200):
+    """
+    Returns (escape_left, escape_right) from DNp01 spike counts (normalized).
+    Falls back to DNp103, then to LPLC2 if neither is in the graph.
+
+    DNp01 is downstream of LPLC2 in the escape circuit (Ache et al. 2019);
+    reading it is more honest than reading LPLC2 directly — the connectome
+    has already integrated the looming signal through the escape pathway.
+    """
+    norm = 200.0 / steps
+    for key_l, key_r in [("dnp01_left", "dnp01_right"),
+                          ("dnp103_left", "dnp103_right"),
+                          ("lplc2_left", "lplc2_right")]:
+        nl = len(groups.get(key_l, []))
+        nr = len(groups.get(key_r, []))
+        if nl > 0 and nr > 0:
+            el = float(counts[groups[key_l]].mean()  * norm)
+            er = float(counts[groups[key_r]].mean() * norm)
+            return el, er, key_l.split("_")[0]   # value, value, source name
+    return 0.0, 0.0, "none"
+
 def _reset_state(brain, use_cuda, v=-52.0):
     if use_cuda:
         brain.reset_state(v=v)
@@ -155,9 +176,10 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500,
     TRACE_KEYS = [
         "t4a_left", "t4a_right",           # input layer
         "lc4_left", "lc4_right",           # looming / lobula
-        "lplc2_left", "lplc2_right",       # looming escape (compare baseline to lc4)
-        "dna02_left", "dna02_right",       # target DNs
-        "dng100_left", "dng100_right",
+        "lplc2_left", "lplc2_right",       # looming escape sensor
+        "dnp01_left", "dnp01_right",       # escape command DN (downstream of LPLC2)
+        "dnp103_left", "dnp103_right",     # escape command DN (highest LPLC2 weight)
+        "dna02_left", "dna02_right",       # turn DNs
     ]
 
     for i in range(steps):
@@ -313,10 +335,15 @@ def main():
             # 3. Read motor output
             left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
             loom_l, loom_r = read_looming_rates(brain.counts, groups, args.steps)
+            escape_l, escape_r, escape_src = read_escape_dn_rates(brain.counts, groups, args.steps)
 
             # 4. Update world physics — use real wall-clock dt so fly speed is
             # independent of GPU throughput (rt=7x was making it 7× too slow).
-            world.step(left_rate, right_rate, dt=actual_dt, loom_l=loom_l, loom_r=loom_r)
+            # Pass escape DN rates (DNp01 → DNp103 → LPLC2 fallback) as the looming
+            # escape signal.  world.step() uses these identically to LPLC2 rates — the
+            # difference is that DNp01 is a command DN downstream of the escape circuit,
+            # not a sensory neuron.
+            world.step(left_rate, right_rate, dt=actual_dt, loom_l=escape_l, loom_r=escape_r)
 
             # 5. Broadcast to browser
             now = time.monotonic()
@@ -340,6 +367,7 @@ def main():
             if frame % 10 == 0:   # print every 10 frames regardless of fps
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
+                      f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
                       f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
                       f"  turn_loom={world.last_loom_turn:+.2f}"
