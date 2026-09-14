@@ -265,8 +265,10 @@ Good: dna02 stable at 3-8 spikes/window, nactive < 100k.
 |---|---|---|
 | `FLOW_GAIN` | 150.0 | dna02 = 5–6 spikes/window, nactive ~25k |
 | `LOOM_GAIN` | 1.0 | lplc2 adj 0.8–1.1 near walls; baseline ~2.0 |
-| `BRAIN_LOOM_BASELINE` | 2.0 | lplc2 steady-state at center = 2.1 |
-| `BRAIN_LOOM_THRESHOLD` | 0.4 | reliably crossed; escape fires near walls |
+| `BRAIN_LOOM_BASELINE` | 4.0 | DNp01 open-field baseline ~4-5 spikes/window (was 2.0 for LPLC2) |
+| `BRAIN_LOOM_THRESHOLD` | 0.4 | DNp01 quantizes 0→4→8; escape fires when adj=4 (esc=8) |
+| `BRAIN_LOOM_TURN` | 0.75 | DNp01 adj peak ~4 vs LPLC2's ~1; scaled ÷4 from 3.0 |
+| `BRAIN_LOOM_SCATTER` | 8.0 | random kick magnitude; fires when both eyes at esc=8 |
 | `TURN_GAIN` | 0.75 | ~3 rad/s at 9x rt; slide up toward 1.5 if rt improves |
 
 **On the "26 Hz vs 2 Hz" boat.horse target:** that's a biological Hz figure.
@@ -325,10 +327,14 @@ code determines what those spikes mean in the 2D world.
 - The motor adapter: `SPEED_GAIN`, `DRAG`, and `TURN_GAIN` convert spike counts
   into pixels/sec and radians/sec. `TURN_GAIN` is not a learned or biological
   constant; it is a user-adjustable unit conversion.
-- The looming adapter: LPLC2 is a sensory/intermediate output here. We map its
-  differential directly to heading, and currently add an explicit random
-  corner/scatter kick. This is a world-model assist, not a reconstructed
-  Giant-Fiber-to-wing-muscle pathway.
+- The escape adapter: DNp01 is the command DN; we read its bilateral differential
+  and map to heading change (turn) or a random kick (scatter when both eyes at max).
+  DNp01 is a single neuron per side and quantizes coarsely — wall-gradient steering
+  is sparse compared to using the LPLC2 population directly.
+- **Scripted tactile fallbacks:** `corner_press` (both walls, 4 frames) and
+  `wall_press` (single wall, 6 frames) in `world.py` apply heading kicks with no
+  neural involvement. These stand in for mechanosensory contact pathways (Johnston's
+  organ, leg mechanoreceptors) that are in MaleCNS but not yet wired as inputs.
 - The browser interpolation/dead-reckoning and all visual colors/trails.
 
 ### Determined by the neural system
@@ -382,16 +388,15 @@ Use the diagnostic turn terms below to separate the contributions.
   hemifield. cos(heading−φ) is maximum head-on; complements T4a's sin(heading−φ) which
   is blind head-on. Together they cover all approach angles with no scripted formulas.
 
-**Architecture note on the looming path:** We're reading LPLC2 (a *sensor* neuron
-encoding "looming from the left") and mapping it directly to heading change. A more
-biologically honest approach would find a downstream *command* DN in the escape circuit
-(Giant Fiber → thoracic ganglion) and read that instead. The current approach works but
-skips the output stage of the escape circuit.
+**Escape circuit:** We read DNp01, a biologically validated descending neuron (Ache
+et al. 2019 Nat Neurosci) that is the top LPLC2 downstream target by aggregate synaptic
+weight. It is a genuine command neuron, not a sensor readout. This is a better boundary
+than reading LPLC2 directly. GF (Giant Fiber) is absent from the MaleCNS annotation;
+DNp01 is the closest analog available in this connectome.
 
-**Baseline subtraction:** LPLC2 fires at ~2.1 normalized even in open field (T4/T5
-bleed-through). To get a clean wall-proximity signal, `world.py` subtracts
-`BRAIN_LOOM_BASELINE = 2.0` before threshold and gain. This is analogous to
-contrast normalization in a downstream neuron adapting to the background drive.
+**Baseline subtraction:** DNp01 fires at ~4-5 normalized spikes/window in open field.
+`world.py` subtracts `BRAIN_LOOM_BASELINE = 4.0` before threshold and gain, leaving only
+the wall-proximity signal above noise.
 
 **Turn diagnostics:** recent `cuda-kernel` builds print and broadcast three
 heading-delta components:
@@ -419,15 +424,19 @@ in the MaleCNS circuit and was dropped from `read_dn_rates`.
 | T4a/b/c/d | ~835-895 | Input layer, driving well |
 | T5a/b/c/d | ~808-863 | Input layer, driving well |
 | LC4 | 55-71 | Looming — active, read for nav (baseline ~0.9) |
-| LPLC2 | 91-94 | **Looming escape** — wired to navigation (baseline ~2.1) |
+| LPLC2 | 91-94 | Looming sensor — input to escape circuit; still injected and reported |
 | DNa02 | 1 | **Turn signal** — primary motor output |
 | DNg100 | 1 | Silent (not T4a downstream) — dropped |
+| DNp01 | 1 | **Escape command** — biologically validated (Ache et al. 2019); top LPLC2 downstream target by aggregate synaptic weight; baseline ~4-5 |
+| DNp103 | 1 | Fallback escape — highest individual LPLC2→DN synapse weight (R=788); less characterized |
 
 ## What to expect
 
 - Fly moves under genuine brain control; DNa02 left/right differential drives turning
 - Turns emerge naturally from optical flow asymmetry when heading changes
-- Wall avoidance driven by LPLC2 differential: left looms more → escape right
+- Escape driven by DNp01 differential: one eye hits 8 spikes/window, other stays at 4 → heading turn; both at 8 → random scatter kick
+- DNp01 is a single neuron per side — quantizes to 0/4/8 only; escape is sparse and command-like (biologically correct)
+- Scripted tactile fallbacks: corner-press (4 frames both walls) and wall-press (6 frames single wall) turn the fly away; these are not neural
 - Looming ring in browser split into left/right hemispheres showing which eye is hotter
 - Wings flap in browser based on speed
 - Stochastic: DNa02 is a single neuron per side — it will occasionally fire 0 spikes
@@ -451,17 +460,27 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
   per hemifield. Removes the last scripted visual input. Confirmed calibration:
   LOOM_GAIN=1.0, lplc2 adj 0.8–1.1 near walls. Head-on escape improved.
 
+- **Find the Giant Fiber / escape command DN → DNp01** ✓
+  GF is absent from MaleCNS annotation (only GFC1-4 present). Used `identify_neurons.py
+  --trace-from LPLC2` to traverse the connectome and rank downstream partners by
+  aggregate synaptic weight. Top result: DNp01 (Ache et al. 2019), biologically
+  validated looming-escape command neuron. Wired as primary escape DN; DNp103 is the
+  fallback. BRAIN_LOOM_BASELINE recalibrated to 4.0 for DNp01's higher open-field
+  baseline.
+
 ### Near-term (concrete)
 
 - **Add CLI ablation flags** — `--no-looming` and `--no-scatter` so DNa02-only and
   looming-only experiments are reproducible without editing source. Currently you must
   zero constants manually.
 
-- **Find the Giant Fiber / escape command DN** — highest-value honest-boundary improvement.
-  LPLC2 is a *sensor*; reading it directly skips the output stage of the escape circuit.
-  Find the Drosophila Giant Fiber (GF) or medial descending neuron (MDN) in the MaleCNS
-  annotation, trace downstream from LPLC2, identify whatever DN fires in the GF-thoracic
-  pathway and read *that* instead. `identify_neurons.py` is the place to add the search.
+- **Mechanosensory injection** — replace scripted corner-press/wall-press with genuine
+  neural input. Real flies use Johnston's organ (antennal) and leg mechanoreceptors for
+  contact/collision detection; these neurons exist in MaleCNS. Steps: (1) search MaleCNS
+  annotation for JON/chordotonal neuron types, (2) inject contact-triggered current when
+  fly is at wall boundary, (3) calibrate and verify downstream escape circuit fires.
+  Moderate effort (~same as adding LC4/LPLC2 expansion signal). Main unknown: whether
+  the annotated mechanosensory types in MaleCNS actually connect to escape circuits.
 
 - **Add obstacles** — `world.obstacles` accepts `{cx, cy, r}` dicts already; just populate
   them. Tests richer navigation and whether expansion signal handles convex obstacles the
