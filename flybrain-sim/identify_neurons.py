@@ -60,6 +60,11 @@ TARGET_TYPES = {
     "dnp01_right": ("DNp01",  "R"),
     "dnp103_left": ("DNp103", "L"),
     "dnp103_right":("DNp103", "R"),
+    # Mechanosensory contact-escape DN — dominant JO-CM downstream target
+    # (JO-CM → DNg29 weight 157.0, 16 synapses, rank 1 in MaleCNS trace).
+    # Injected directly because JO neurons lack soma-side annotation in MaleCNS.
+    "dng29_left":  ("DNg29", "L"),
+    "dng29_right": ("DNg29", "R"),
     # Mechanosensory groups are populated by the prefix scan below.  The
     # MaleCNS annotation vocabulary has changed between exports, so these are
     # deliberately not hard-coded to one JON/chordotonal subtype.
@@ -82,6 +87,7 @@ TYPE_ALIASES = {
     "DNa02":  ["DNa02", "dna02", "aDN2"],
     "DNg100": ["DNg100", "DNg100a", "DNg100b"],
     "DNg13":  ["DNg13", "gDN13"],
+    "DNg29":  ["DNg29", "dng29"],
     "GF":     ["GF", "Giant_Fiber", "giantfiber", "giant fiber", "GiantFiber"],
     "LPLC2":  ["LPLC2", "lplc2"],
     "LC4":    ["LC4", "lc4"],

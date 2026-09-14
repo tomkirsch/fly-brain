@@ -41,9 +41,11 @@ import numpy as np
 # ── Tuning ────────────────────────────────────────────────────────────────────
 # Re-tune with --calibrate after any world-size or ray-count change.
 # Target: dna02 at 3–8 spikes/200-tick window; nactive < 100k.
-FLOW_GAIN = 150.0   # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
-LOOM_GAIN = 1.0     # mV per unit expansion ray-sum (start point; retune with --calibrate)
-MECH_GAIN = 20.0    # mV per normalized contact pressure; calibrated sparse-response test
+FLOW_GAIN    = 150.0  # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
+LOOM_GAIN    = 1.0    # mV per unit expansion ray-sum (start point; retune with --calibrate)
+MECH_GAIN    = 20.0   # mV per normalized contact pressure; calibrated sparse-response test
+CONTACT_GAIN = 50.0   # mV per normalized contact pressure; direct DNg29 injection
+                      # bypasses bilateral JO pool (JO somaSide=nan in MaleCNS)
 
 NUM_RAYS = 72       # panoramic columns; 360/72 = 5° per ray
 
@@ -129,6 +131,8 @@ class FlowEncoder:
         self._inject(drive, "lplc2_right", right_loom * LOOM_GAIN)
         self._inject(drive, "mech_left",    max(0.0, mech_l) * MECH_GAIN)
         self._inject(drive, "mech_right",   max(0.0, mech_r) * MECH_GAIN)
+        self._inject(drive, "dng29_left",   max(0.0, mech_l) * CONTACT_GAIN)
+        self._inject(drive, "dng29_right",  max(0.0, mech_r) * CONTACT_GAIN)
 
         return drive
 

@@ -34,6 +34,14 @@ BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
 BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
 MECH_CONTACT_FRAMES  = 3     # frames of sustained contact for full sensory pressure
 
+# Neural contact escape via DNg29 — dominant JO-CM downstream target
+# (JO-CM → DNg29 weight 157.0, 16 synapses, rank 1 in MaleCNS trace).
+# DNg29 baseline is ~0 (silent in free flight); no baseline subtraction needed.
+# Injection is one synapse downstream of JO-CM because JO somaSide=nan in MaleCNS.
+BRAIN_CONTACT_BASELINE  = 0.0   # DNg29 open-field baseline (expected ~0)
+BRAIN_CONTACT_THRESHOLD = 0.4   # adjusted spikes above baseline to trigger escape
+BRAIN_CONTACT_TURN      = 1.5   # rad/sec per spike differential (tune after test)
+
 
 class World:
     def __init__(self, width: int = 800, height: int = 600):
@@ -59,9 +67,10 @@ class World:
 
         # Per-step control decomposition for console/HUD diagnostics. These are
         # world-space translations of neural outputs, not extra control paths.
-        self.last_dn_turn = 0.0
-        self.last_loom_turn = 0.0
+        self.last_dn_turn      = 0.0
+        self.last_loom_turn    = 0.0
         self.last_scatter_turn = 0.0
+        self.last_contact_turn = 0.0
 
         # Sensor outputs (updated each step, read by FlowEncoder)
         self.looming_left  = 0.0
@@ -71,7 +80,8 @@ class World:
         self.obstacles = []
 
     def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
-             loom_l: float = 0.0, loom_r: float = 0.0):
+             loom_l: float = 0.0, loom_r: float = 0.0,
+             contact_l: float = 0.0, contact_r: float = 0.0):
         """
         Update fly position from descending neuron fire rates.
         left_dn_rate / right_dn_rate: normalized spike counts (~200-tick window)
@@ -81,9 +91,10 @@ class World:
         """
         forward_rate = (left_dn_rate + right_dn_rate) / 2.0
         turn_diff    = right_dn_rate - left_dn_rate
-        self.last_dn_turn = 0.0
-        self.last_loom_turn = 0.0
+        self.last_dn_turn      = 0.0
+        self.last_loom_turn    = 0.0
         self.last_scatter_turn = 0.0
+        self.last_contact_turn = 0.0
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
             # Brain is silent — wander with geometric looming-based steering.
@@ -131,6 +142,17 @@ class World:
                 corner_kick = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
                 self.last_scatter_turn += corner_kick
                 self.heading += corner_kick
+
+            # Neural mechanosensory escape via DNg29.
+            # JO-CM → DNg29 is the dominant first-synapse pathway (weight 157, 16 syn).
+            # We inject one step downstream because JO somaSide=nan in MaleCNS prevents
+            # lateralized JO injection. contact_l > contact_r → left wall → turn right.
+            adj_cl = max(0.0, contact_l - BRAIN_CONTACT_BASELINE)
+            adj_cr = max(0.0, contact_r - BRAIN_CONTACT_BASELINE)
+            if max(adj_cl, adj_cr) > BRAIN_CONTACT_THRESHOLD:
+                contact_escape = (adj_cl - adj_cr) * BRAIN_CONTACT_TURN * dt
+                self.last_contact_turn = contact_escape
+                self.heading += contact_escape
 
         self.heading = self.heading % (2 * math.pi)
 
@@ -241,9 +263,10 @@ class World:
             "speed": round(self.speed, 2),
             "looming_left":  round(self.looming_left, 3),
             "looming_right": round(self.looming_right, 3),
-            "dn_turn": round(self.last_dn_turn, 4),
-            "loom_turn": round(self.last_loom_turn, 4),
+            "dn_turn":      round(self.last_dn_turn,      4),
+            "loom_turn":    round(self.last_loom_turn,    4),
             "scatter_turn": round(self.last_scatter_turn, 4),
+            "contact_turn": round(self.last_contact_turn, 4),
             "mech_left": round(self.mech_left, 3),
             "mech_right": round(self.mech_right, 3),
             "width": self.width,

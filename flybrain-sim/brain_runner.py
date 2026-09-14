@@ -430,6 +430,8 @@ def main():
                 for key in contact_dn_keys
             }
             contact_dn_peak = max(contact_dn_rates.values(), default=0.0)
+            contact_l = contact_dn_rates.get("dng29_left",  0.0)
+            contact_r = contact_dn_rates.get("dng29_right", 0.0)
             if args.print_dn and (mech_input_l > 0.0 or mech_input_r > 0.0):
                 compact_dn = " ".join(
                     f"{key}={value:.1f}" for key, value in contact_dn_rates.items()
@@ -444,7 +446,8 @@ def main():
             # escape signal.  world.step() uses these identically to LPLC2 rates — the
             # difference is that DNp01 is a command DN downstream of the escape circuit,
             # not a sensory neuron.
-            world.step(left_rate, right_rate, dt=actual_dt, loom_l=escape_l, loom_r=escape_r)
+            world.step(left_rate, right_rate, dt=actual_dt, loom_l=escape_l, loom_r=escape_r,
+                       contact_l=contact_l, contact_r=contact_r)
 
             # 5. Broadcast to browser
             now = time.monotonic()
@@ -486,6 +489,7 @@ def main():
                       f" dn_peak={contact_dn_peak:.1f}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
                       f"  turn_loom={world.last_loom_turn:+.2f}"
+                      f"  turn_contact={world.last_contact_turn:+.2f}"
                       f"  scatter={world.last_scatter_turn:+.2f}"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
                       f"  rt={rt:.2f}x  nactive={brain.nactive[0]}")
