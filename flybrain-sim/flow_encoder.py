@@ -43,7 +43,7 @@ import numpy as np
 # Target: dna02 at 3–8 spikes/200-tick window; nactive < 100k.
 FLOW_GAIN = 150.0   # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
 LOOM_GAIN = 1.0     # mV per unit expansion ray-sum (start point; retune with --calibrate)
-MECH_GAIN = 8.0     # mV per normalized contact pressure; calibrate against mech groups
+MECH_GAIN = 40.0    # mV per normalized contact pressure; initial excitability test
 
 NUM_RAYS = 72       # panoramic columns; 360/72 = 5° per ray
 

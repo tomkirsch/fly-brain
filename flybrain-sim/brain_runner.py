@@ -117,6 +117,15 @@ def read_group_rate(counts: np.ndarray, groups: dict, key: str, steps: int = 200
     return float(counts[arr].mean() * (200.0 / steps))
 
 
+def read_group_stats(counts: np.ndarray, groups: dict, key: str, steps: int = 200):
+    """Return normalized (mean, max, active-neuron count) for diagnostics."""
+    arr = groups.get(key)
+    if arr is None or len(arr) == 0:
+        return 0.0, 0.0, 0
+    values = counts[arr].astype(np.float64) * (200.0 / steps)
+    return float(values.mean()), float(values.max()), int(np.count_nonzero(values))
+
+
 def read_looming_rates(counts: np.ndarray, groups: dict, steps: int = 200):
     """
     Returns (loom_left, loom_right) from LPLC2 spike counts, normalized to a
@@ -371,7 +380,8 @@ def main():
             left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
             loom_l, loom_r = read_looming_rates(brain.counts, groups, args.steps)
             escape_l, escape_r, escape_src = read_escape_dn_rates(brain.counts, groups, args.steps)
-            mech_rate = read_group_rate(brain.counts, groups, "mech_all", args.steps)
+            mech_rate, mech_peak, mech_active = read_group_stats(
+                brain.counts, groups, "mech_static", args.steps)
 
             # 4. Update world physics — use real wall-clock dt so fly speed is
             # independent of GPU throughput (rt=7x was making it 7× too slow).
@@ -391,6 +401,8 @@ def main():
                     "mech_left": round(float(world.mech_left), 3),
                     "mech_right": round(float(world.mech_right), 3),
                     "mech_rate": round(mech_rate, 2),
+                    "mech_peak": round(mech_peak, 2),
+                    "mech_active": mech_active,
                     "frame": frame,
                 })
                 ws.broadcast(state)
@@ -409,7 +421,8 @@ def main():
                       f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
                       f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
                       f"  mech={world.mech_left:.2f}/{world.mech_right:.2f}"
-                      f" mech_spk={mech_rate:.1f}"
+                      f" mech_spk={mech_rate:.2f}"
+                      f" mech_peak={mech_peak:.1f} active={mech_active}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
                       f"  turn_loom={world.last_loom_turn:+.2f}"
                       f"  scatter={world.last_scatter_turn:+.2f}"
