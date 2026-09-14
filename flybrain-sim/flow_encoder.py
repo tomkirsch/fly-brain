@@ -17,19 +17,16 @@ Hemifields (relative to heading):
 
 T4a/T5a   → front-to-back flow per eye (sum of positive ω on left, negative on right)
 T4b/T5b   → back-to-front flow (opposite direction)
-LC4/LPLC2 → injected directly from geometric looming_left/right (see below)
+LC4/LPLC2 → ray-cast expansion signal: v_radial = speed·cos(heading−φ), max 0 → toward
 
 Asymmetry example: fly near the top wall while heading right.
   "Up" rays (offset ~270°) are in the left eye and hit the top wall at ~40 px.
   "Down" rays (offset ~90°) are in the right eye and hit the bottom wall at ~480 px.
   Left T4a/T5a signal is 9× right → genuine DNa02 differential.
 
-LOOMING NOTE: LC4/LPLC2 continue to receive world.py's geometric looming values
-  (same as before), NOT ray-cast values. The ray-cast looming places "forward" in
-  the right eye, creating a systematic right bias when approaching any wall head-on —
-  incorrect for the directional escape logic in world.py which expects left/right to
-  map to geographic left/right. Geometric looming is kept until we have a proper
-  3D scene-based expansion signal. This is a known simplification.
+LOOMING: cos(heading−φ) is the complement of T4a's sin(heading−φ).  T4a is blind
+  to head-on (v_perp=0); expansion is maximum head-on.  Same ray-cast infrastructure,
+  one formula swap — no geometric scripting.
 
 Gains:
   The old FLOW_GAIN=20 was calibrated for the analytical formula (left_ftb = speed).
@@ -45,7 +42,7 @@ import numpy as np
 # Re-tune with --calibrate after any world-size or ray-count change.
 # Target: dna02 at 3–8 spikes/200-tick window; nactive < 100k.
 FLOW_GAIN = 150.0   # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
-LOOM_GAIN = 3.0     # mV per unit looming ray-sum (tune once flow is stable)
+LOOM_GAIN = 1.0     # mV per unit expansion ray-sum (start point; retune with --calibrate)
 
 NUM_RAYS = 72       # panoramic columns; 360/72 = 5° per ray
 
@@ -71,8 +68,7 @@ class FlowEncoder:
 
     def encode(self, x: float, y: float, vx: float, vy: float, heading: float,
                world_width: float = 800, world_height: float = 600,
-               margin: float = 40.0, obstacles: list = None,
-               looming_left: float = 0.0, looming_right: float = 0.0) -> np.ndarray:
+               margin: float = 40.0, obstacles: list = None) -> np.ndarray:
         """
         Returns drive array shape (n_neurons,) with injection currents in mV.
 
@@ -81,8 +77,6 @@ class FlowEncoder:
         heading           : radians, 0 = right, π/2 = down
         world_width/height, margin : arena geometry (must match World init)
         obstacles         : list of {cx, cy, r} dicts (from World.obstacles)
-        looming_left/right: geometric looming from world.py (0–1); injected into
-                            LC4/LPLC2 directly (see module docstring for why)
         """
         speed = math.sqrt(vx * vx + vy * vy)
 
@@ -108,6 +102,13 @@ class FlowEncoder:
         left_btf  = float(np.dot(lm, np.maximum(0.0, -v_perp)  * inv_d))
         right_btf = float(np.dot(rm, np.maximum(0.0,  v_perp)  * inv_d))
 
+        # ── LC4/LPLC2 (expansion / looming) ───────────────────────────────────
+        # v_radial > 0 → moving toward that column → expansion signal
+        v_radial  = speed * np.cos(heading - angles)
+        expansion = np.maximum(0.0, v_radial) * inv_d
+        left_loom  = float(np.dot(self._left_mask,  expansion))
+        right_loom = float(np.dot(self._right_mask, expansion))
+
         drive = np.zeros(self.n, dtype=np.float32)
         self._inject(drive, "t4a_left",    left_ftb   * FLOW_GAIN)
         self._inject(drive, "t5a_left",    left_ftb   * FLOW_GAIN)
@@ -117,13 +118,10 @@ class FlowEncoder:
         self._inject(drive, "t5b_left",    left_btf   * FLOW_GAIN)
         self._inject(drive, "t4b_right",   right_btf  * FLOW_GAIN)
         self._inject(drive, "t5b_right",   right_btf  * FLOW_GAIN)
-        # LC4/LPLC2 from geometric looming (world.py formula) — see module docstring
-        ll = looming_left  * LOOM_GAIN
-        lr = looming_right * LOOM_GAIN
-        self._inject(drive, "lc4_left",    ll)
-        self._inject(drive, "lplc2_left",  ll)
-        self._inject(drive, "lc4_right",   lr)
-        self._inject(drive, "lplc2_right", lr)
+        self._inject(drive, "lc4_left",    left_loom  * LOOM_GAIN)
+        self._inject(drive, "lplc2_left",  left_loom  * LOOM_GAIN)
+        self._inject(drive, "lc4_right",   right_loom * LOOM_GAIN)
+        self._inject(drive, "lplc2_right", right_loom * LOOM_GAIN)
 
         return drive
 

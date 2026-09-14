@@ -292,7 +292,6 @@ def main():
             drive = encoder.encode(
                 world.x, world.y, world.vx, world.vy, world.heading,
                 world.width, world.height, world.margin, world.obstacles,
-                looming_left=world.looming_left, looming_right=world.looming_right,
             )
             brain.drive[:] = drive
 

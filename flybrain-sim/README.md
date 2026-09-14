@@ -259,6 +259,16 @@ After `--calibrate`, check the printout for healthy values:
 Good: dna02 stable at 3-8 spikes/window, nactive < 100k.
 ```
 
+**Confirmed calibration (2026-09-14, RTX 2060, CUDA, `--steps 50`):**
+
+| Constant | Value | Source |
+|---|---|---|
+| `FLOW_GAIN` | 150.0 | dna02 = 5–6 spikes/window, nactive ~25k |
+| `LOOM_GAIN` | 1.0 | lplc2 adj 0.8–1.1 near walls; baseline ~2.0 |
+| `BRAIN_LOOM_BASELINE` | 2.0 | lplc2 steady-state at center = 2.1 |
+| `BRAIN_LOOM_THRESHOLD` | 0.4 | reliably crossed; escape fires near walls |
+| `TURN_GAIN` | 0.75 | ~3 rad/s at 9x rt; slide up toward 1.5 if rt improves |
+
 **On the "26 Hz vs 2 Hz" boat.horse target:** that's a biological Hz figure.
 At 200 ticks/window (20ms), 26 Hz = 0.52 spikes/window — already well below
 what we see. The sim LIF runs hotter than biology; 3-8 spikes/window is fine.
@@ -365,14 +375,18 @@ Use the diagnostic turn terms below to separate the contributions.
 - The physics equations (speed/heading update from DN rates)
 - SPEED_GAIN, TURN_GAIN, DRAG constants
 - Direction convention mapping velocity → T4a subtypes
-- The looming input injection itself (geometric wall distance → LPLC2 drive)
 - The output mapping (LPLC2 spike differential → escape heading change)
+
+**Now computed from visual geometry (no longer scripted):**
+- LC4/LPLC2 drive: ray-cast expansion `v_radial = speed·cos(heading−φ)` summed per
+  hemifield. cos(heading−φ) is maximum head-on; complements T4a's sin(heading−φ) which
+  is blind head-on. Together they cover all approach angles with no scripted formulas.
 
 **Architecture note on the looming path:** We're reading LPLC2 (a *sensor* neuron
 encoding "looming from the left") and mapping it directly to heading change. A more
 biologically honest approach would find a downstream *command* DN in the escape circuit
-(Giant Fiber → thoracic) and read that instead. The current approach works but skips
-the output stage of the escape circuit.
+(Giant Fiber → thoracic ganglion) and read that instead. The current approach works but
+skips the output stage of the escape circuit.
 
 **Baseline subtraction:** LPLC2 fires at ~2.1 normalized even in open field (T4/T5
 bleed-through). To get a clean wall-proximity signal, `world.py` subtracts
@@ -430,43 +444,61 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
 
 ## Next
 
-- **Ray-cast expansion → LPLC2** *(next task)*
-  Current looming is scripted: `world.py` computes a geometric wall-distance
-  formula and injects it into LC4/LPLC2 as a proxy. Replace with a proper visual
-  expansion signal inside `flow_encoder.py`:
+### Recently completed
 
-  ```python
-  v_radial  = speed * np.cos(heading - angles)      # radial velocity toward each ray
-  expansion = np.maximum(0.0, v_radial) * inv_d     # expansion rate = v_toward / d
-  left_loom  = float(np.dot(left_mask,  expansion)) # fly-local left hemifield sum
-  right_loom = float(np.dot(right_mask, expansion)) # fly-local right hemifield sum
-  ```
+- **Ray-cast expansion → LPLC2** ✓
+  `flow_encoder.py` now computes `v_radial = speed·cos(heading−φ)` per ray and sums
+  per hemifield. Removes the last scripted visual input. Confirmed calibration:
+  LOOM_GAIN=1.0, lplc2 adj 0.8–1.1 near walls. Head-on escape improved.
 
-  Inject `left_loom * LOOM_GAIN` into LC4/LPLC2 left; same for right. Drop the
-  `looming_left/looming_right` parameters from `encode()`; keep `_update_looming()`
-  in `world.py` for the HUD ring only.
+### Near-term (concrete)
 
-  Why this matters:
-  - T4a is *blind* to head-on approach (v_perp = 0 directly ahead); expansion is
-    *maximum* head-on. Together they cover all approach angles.
-  - Removes the last scripted visual-input component; LPLC2 becomes a real visual
-    computation rather than a distance proxy.
-  - Head-on fires both eyes equally → existing scatter handles random escape direction.
-  - LOOM_GAIN will likely need re-calibration (expansion signal is on the same scale
-    as T4a flow; try LOOM_GAIN = 1.0 first, then adjust so LPLC2 adj > threshold at
-    ~100px approach distance).
+- **Add CLI ablation flags** — `--no-looming` and `--no-scatter` so DNa02-only and
+  looming-only experiments are reproducible without editing source. Currently you must
+  zero constants manually.
 
-- Run the new diagnostics and record `turn_dn`, `turn_loom`, and `scatter` at
-  `TURN_GAIN=0` and at the preferred value. Do not infer neural causality from
-  trajectory appearance alone.
-- Add explicit feature flags or CLI switches for `looming` and `scatter`, so
-  DNa02-only and looming-only experiments can be reproduced without editing
-  source.
-- **Find a command DN downstream of the Giant Fiber escape circuit** in the MaleCNS graph.
-  Something that fires when LPLC2 fires and encodes escape direction. Read that instead
-  of reading LPLC2 directly — would translate at the *command* level (like DNa02) rather
-  than the *sensor* level (like current LPLC2 approach).
-- Add obstacles (circles) to `world.obstacles` for richer navigation
-- Brain viz: pipe spike counts per neuron over WebSocket → Three.js point cloud
-- Decouple physics from brain loop: run physics at 60fps with last-known DN rates,
-  update DN rates async when each brain frame completes → smoother on-screen motion
+- **Find the Giant Fiber / escape command DN** — highest-value honest-boundary improvement.
+  LPLC2 is a *sensor*; reading it directly skips the output stage of the escape circuit.
+  Find the Drosophila Giant Fiber (GF) or medial descending neuron (MDN) in the MaleCNS
+  annotation, trace downstream from LPLC2, identify whatever DN fires in the GF-thoracic
+  pathway and read *that* instead. `identify_neurons.py` is the place to add the search.
+
+- **Add obstacles** — `world.obstacles` accepts `{cx, cy, r}` dicts already; just populate
+  them. Tests richer navigation and whether expansion signal handles convex obstacles the
+  same way it handles walls.
+
+- **Adaptive BRAIN_LOOM_BASELINE** — currently hardcoded at 2.0. Could compute a 200-frame
+  rolling mean of lplc2 output in open field and subtract that dynamically. Would survive
+  FLOW_GAIN or LOOM_GAIN changes without manual recalibration.
+
+### Medium-term
+
+- **More motor DNs** — only DNa02 drives turning and speed. Drosophila has ~50+ descending
+  neurons per side. Run `identify_neurons.py` with a broader query (DNg*, DNc*, etc.) and
+  see which ones actually fire above baseline during navigation. Could find a speed-specific
+  DN separate from the turn DN.
+
+- **Decouple physics from brain loop** — run `world.step()` at 60fps using last-known DN
+  rates; update DN rates async when each brain frame completes. Makes on-screen motion
+  smooth even at rt=9x. Requires a thread-safe rate buffer.
+
+- **Brain spike visualizer** — pipe per-neuron counts over WebSocket → Three.js / canvas
+  point cloud. Even a 2D projection of the optic lobe showing which columns are hot would
+  be impressive and useful for debugging.
+
+### Longer-term / speculative
+
+- **Central complex (EPG compass neurons)** — the ring attractor encoding heading is in
+  MaleCNS. If we inject visual landmark cues into the appropriate columnar neurons (E-PG,
+  P-EN) and read the population vector, we could replace the programmed `self.heading`
+  variable with a brain-computed heading estimate. This would be the most significant
+  neural-ness upgrade possible without adding real optics.
+
+- **Haltere-like proprioception** — real flies stabilize flight using halteres (gyroscopes).
+  Could inject angular-velocity signals into campaniform sensillum homologs each frame,
+  closing the sensorimotor loop for heading stabilization.
+
+- **Performance** — CUDA runs at ~9x realtime on RTX 2060 for 166k neurons. Profiling the
+  kernel may reveal memory-bandwidth bottlenecks. Sparse-update strategies (only propagate
+  from neurons that actually spiked) could help; the CPU engine already does this via the
+  active set, but the CUDA port runs all neurons every tick.
