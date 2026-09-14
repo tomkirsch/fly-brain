@@ -262,8 +262,10 @@ def main():
                         help="LIF ticks per frame (50=5ms fast, 200=20ms full; GPU makes 200 very slow)")
     parser.add_argument("--frames",    type=int, default=0,
                         help="Stop after this many frames (0 = run until Ctrl-C)")
-    parser.add_argument("--mech-gain", type=float, default=None,
-                        help="Override mechanosensory injection gain for A/B tests")
+    parser.add_argument("--mech-gain",    type=float, default=None,
+                        help="Override mechanosensory (JO pool) injection gain for A/B tests")
+    parser.add_argument("--contact-gain", type=float, default=None,
+                        help="Override DNg29 direct injection gain (default: CONTACT_GAIN in flow_encoder.py)")
     parser.add_argument("--seed",      type=int, default=None,
                         help="Seed world randomness for comparable A/B runs")
     parser.add_argument("--print-dn",  action="store_true",
@@ -331,6 +333,9 @@ def main():
     if args.mech_gain is not None:
         flow_encoder.MECH_GAIN = float(args.mech_gain)
         print(f"Mechanosensory gain override: {flow_encoder.MECH_GAIN:.2f}")
+    if args.contact_gain is not None:
+        flow_encoder.CONTACT_GAIN = float(args.contact_gain)
+        print(f"Contact (DNg29) gain override: {flow_encoder.CONTACT_GAIN:.2f}")
     if args.no_mechanosensory:
         print("Mechanosensory ablation: contact detector retained, injection disabled")
     if args.mechanosensory_only:

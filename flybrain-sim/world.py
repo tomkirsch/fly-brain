@@ -143,16 +143,16 @@ class World:
                 self.last_scatter_turn += corner_kick
                 self.heading += corner_kick
 
-            # Neural mechanosensory escape via DNg29.
-            # JO-CM → DNg29 is the dominant first-synapse pathway (weight 157, 16 syn).
-            # We inject one step downstream because JO somaSide=nan in MaleCNS prevents
-            # lateralized JO injection. contact_l > contact_r → left wall → turn right.
-            adj_cl = max(0.0, contact_l - BRAIN_CONTACT_BASELINE)
-            adj_cr = max(0.0, contact_r - BRAIN_CONTACT_BASELINE)
-            if max(adj_cl, adj_cr) > BRAIN_CONTACT_THRESHOLD:
-                contact_escape = (adj_cl - adj_cr) * BRAIN_CONTACT_TURN * dt
-                self.last_contact_turn = contact_escape
-                self.heading += contact_escape
+
+        # Neural mechanosensory escape via DNg29 — runs regardless of visual drive state.
+        # JO-CM → DNg29 is the dominant first-synapse pathway (weight 157, 16 syn).
+        # contact_l > contact_r → left wall → positive turn → escapes right.
+        adj_cl = max(0.0, contact_l - BRAIN_CONTACT_BASELINE)
+        adj_cr = max(0.0, contact_r - BRAIN_CONTACT_BASELINE)
+        if max(adj_cl, adj_cr) > BRAIN_CONTACT_THRESHOLD:
+            contact_escape = (adj_cl - adj_cr) * BRAIN_CONTACT_TURN * dt
+            self.last_contact_turn = contact_escape
+            self.heading += contact_escape
 
         self.heading = self.heading % (2 * math.pi)
 

@@ -44,8 +44,9 @@ import numpy as np
 FLOW_GAIN    = 150.0  # mV per unit flow ray-sum  (up from 20; new formula is ~8× smaller)
 LOOM_GAIN    = 1.0    # mV per unit expansion ray-sum (start point; retune with --calibrate)
 MECH_GAIN    = 20.0   # mV per normalized contact pressure; calibrated sparse-response test
-CONTACT_GAIN = 50.0   # mV per normalized contact pressure; direct DNg29 injection
+CONTACT_GAIN = 200.0  # mV per normalized contact pressure; direct DNg29 injection
                       # bypasses bilateral JO pool (JO somaSide=nan in MaleCNS)
+                      # 200 needed to overcome warm-network inhibition (~15k active neurons)
 
 NUM_RAYS = 72       # panoramic columns; 360/72 = 5° per ray
 
