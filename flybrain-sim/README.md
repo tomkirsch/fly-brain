@@ -430,6 +430,32 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
 
 ## Next
 
+- **Ray-cast expansion → LPLC2** *(next task)*
+  Current looming is scripted: `world.py` computes a geometric wall-distance
+  formula and injects it into LC4/LPLC2 as a proxy. Replace with a proper visual
+  expansion signal inside `flow_encoder.py`:
+
+  ```python
+  v_radial  = speed * np.cos(heading - angles)      # radial velocity toward each ray
+  expansion = np.maximum(0.0, v_radial) * inv_d     # expansion rate = v_toward / d
+  left_loom  = float(np.dot(left_mask,  expansion)) # fly-local left hemifield sum
+  right_loom = float(np.dot(right_mask, expansion)) # fly-local right hemifield sum
+  ```
+
+  Inject `left_loom * LOOM_GAIN` into LC4/LPLC2 left; same for right. Drop the
+  `looming_left/looming_right` parameters from `encode()`; keep `_update_looming()`
+  in `world.py` for the HUD ring only.
+
+  Why this matters:
+  - T4a is *blind* to head-on approach (v_perp = 0 directly ahead); expansion is
+    *maximum* head-on. Together they cover all approach angles.
+  - Removes the last scripted visual-input component; LPLC2 becomes a real visual
+    computation rather than a distance proxy.
+  - Head-on fires both eyes equally → existing scatter handles random escape direction.
+  - LOOM_GAIN will likely need re-calibration (expansion signal is on the same scale
+    as T4a flow; try LOOM_GAIN = 1.0 first, then adjust so LPLC2 adj > threshold at
+    ~100px approach distance).
+
 - Run the new diagnostics and record `turn_dn`, `turn_loom`, and `scatter` at
   `TURN_GAIN=0` and at the preferred value. Do not infer neural causality from
   trajectory appearance alone.
