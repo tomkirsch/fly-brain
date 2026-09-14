@@ -496,19 +496,39 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
   fallback. BRAIN_LOOM_BASELINE recalibrated to 4.0 for DNp01's higher open-field
   baseline.
 
+- **Mechanosensory contact path validated** ✓
+  JO-C/E injection wired in `flow_encoder.py`. `--mechanosensory-only` ablation run
+  (seed 123, visual/looming disabled) confirmed: contact onset at frame 39 →
+  first DNa02 response at frame 45 (~6 frame latency), sustained bilateral DNa02/DNp01
+  activity through contact, fly escaped wall by frame 100. Scripted corner/wall heading
+  kicks removed; all contact escape now from the connectome. Ablation control
+  (`--no-mechanosensory`) confirmed zero DN response without the injection.
+
 ### Near-term (concrete)
+
+- **Full-mode combined test** — run with visual + mechanosensory both active and compare
+  wall-contact behavior vs the old visual-only baseline. Does mechanosensory contact input
+  add measurable escape improvement, or does looming drive dominate?
+
+  ```bash
+  PYTHONUNBUFFERED=1 python brain_runner.py \
+    --doomfly ../doomfly \
+    --steps 50 \
+    --frames 300 \
+    --seed 123 \
+    --mech-gain 20 \
+    --print-dn \
+    > /tmp/fly-fullmode.log 2>&1
+
+  grep -E 'CONTACT_DN|frame (10|20|30|40|50|60|100|150|200|250|290)' /tmp/fly-fullmode.log
+  ```
+
+  Compare: do DNa02/DNp01 fire earlier or with stronger asymmetry during contact than
+  in the mechanosensory-only run? Does `turn_loom` compete with or reinforce `turn_dn`?
 
 - **Add CLI ablation flags** — `--no-looming` and `--no-scatter` so DNa02-only and
   looming-only experiments are reproducible without editing source. Currently you must
   zero constants manually.
-
-- **Mechanosensory validation** — `identify_neurons.py` discovers bilateral
-  annotation rows matching JON/Johnston/chordotonal/campaniform/mechanosensory/
-  proprioceptive labels into `mech_left`/`mech_right`. Once annotations are available,
-  list each family, regenerate `neuron_groups.json`, trace each candidate with
-  `--trace-from`, calibrate `MECH_GAIN`, and verify that contact changes downstream
-  escape/motor activity. The broad discovery is intentionally temporary; split groups
-  by validated biological type before treating results as evidence.
 
 - **Add obstacles** — `world.obstacles` accepts `{cx, cy, r}` dicts already; just populate
   them. Tests richer navigation and whether expansion signal handles convex obstacles the

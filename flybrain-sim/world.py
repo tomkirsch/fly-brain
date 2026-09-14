@@ -32,8 +32,6 @@ BRAIN_LOOM_THRESHOLD = 0.4   # adjusted spikes above baseline; DNp01 quantizes 0
 BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
                              # was 3.0 for LPLC2 (adj peak ~1); DNp01 adj peak ~4 → scale ÷4
 BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
-CORNER_PRESS_FRAMES  = 4     # consecutive frames at a corner before forcing a heading kick
-WALL_PRESS_FRAMES    = 6     # consecutive frames sliding a single wall before collision kick
 MECH_CONTACT_FRAMES  = 3     # frames of sustained contact for full sensory pressure
 
 
@@ -143,9 +141,7 @@ class World:
         at_h = (self.x <= m) or (self.x >= self.width  - m)
         at_v = (self.y <= m) or (self.y >= self.height - m)
         if at_h and at_v:
-            # Corner: both walls simultaneously. Keep contact persistent so
-            # the neural mechanosensory experiment can receive it; do not
-            # apply the old scripted heading kick.
+            # Corner: both walls simultaneously; expose bilateral contact pressure.
             self._corner_frames += 1
             self._wall_frames = 0
             pressure = min(1.0, self._corner_frames / MECH_CONTACT_FRAMES)
