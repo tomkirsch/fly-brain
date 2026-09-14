@@ -117,6 +117,14 @@ class World:
                     self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
                     escape += self.last_scatter_turn
                 self.heading += escape
+            # Corner-contact scatter: bilateral contact with symmetric DNp01 gives
+            # zero adj_l/adj_r and zero turn_loom. One-shot kick on contact onset
+            # (frame == MECH_CONTACT_FRAMES) breaks symmetry without repeating.
+            # Sim design choice — no neural basis; documented in README.
+            if self.mech_left > 0 and self.mech_right > 0 and self._corner_frames == MECH_CONTACT_FRAMES:
+                corner_kick = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
+                self.last_scatter_turn += corner_kick
+                self.heading += corner_kick
 
         self.heading = self.heading % (2 * math.pi)
 

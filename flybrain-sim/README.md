@@ -391,6 +391,12 @@ Use the diagnostic turn terms below to separate the contributions.
   conflict doesn't arise because escape is ballistic — the fly clears the threat before
   optical flow pulls it back. In the 2D sim it causes sustained wall-hugging, so we
   suppress it as an explicit design choice.
+- **Corner-contact scatter:** when both walls are in contact (`mech_left > 0` and
+  `mech_right > 0`) and DNp01 fires symmetrically, `adj_l = adj_r = 0` after baseline
+  subtraction, yielding zero `turn_loom`. A one-shot random heading kick (same magnitude
+  as visual scatter, `BRAIN_LOOM_SCATTER`) fires once per corner-contact onset
+  (`_corner_frames == MECH_CONTACT_FRAMES`) to break symmetry. No neural basis — corners
+  don't occur meaningfully in real flight; this is a 2D arena artifact.
 
 **Now computed from visual geometry (no longer scripted):**
 - LC4/LPLC2 drive: ray-cast expansion `v_radial = speed·cos(heading−φ)` summed per
@@ -512,26 +518,6 @@ Use `--steps 200` for full within-window propagation (slower, ~3fps).
   (`--no-mechanosensory`) confirmed zero DN response without the injection.
 
 ### Near-term (concrete)
-
-- **Full-mode combined test** — run with visual + mechanosensory both active and compare
-  wall-contact behavior vs the old visual-only baseline. Does mechanosensory contact input
-  add measurable escape improvement, or does looming drive dominate?
-
-  ```bash
-  PYTHONUNBUFFERED=1 python brain_runner.py \
-    --doomfly ../doomfly \
-    --steps 50 \
-    --frames 300 \
-    --seed 123 \
-    --mech-gain 20 \
-    --print-dn \
-    > /tmp/fly-fullmode.log 2>&1
-
-  grep -E 'CONTACT_DN|frame (10|20|30|40|50|60|100|150|200|250|290)' /tmp/fly-fullmode.log
-  ```
-
-  Compare: do DNa02/DNp01 fire earlier or with stronger asymmetry during contact than
-  in the mechanosensory-only run? Does `turn_loom` compete with or reinforce `turn_dn`?
 
 - **Add CLI ablation flags** — `--no-looming` and `--no-scatter` so DNa02-only and
   looming-only experiments are reproducible without editing source. Currently you must
