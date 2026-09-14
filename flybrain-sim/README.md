@@ -303,17 +303,26 @@ fly.html             browser canvas renderer (open directly, no server)
 - Left/right differential — when lateral velocity creates asymmetric optical flow, the
   MaleCNS circuit routes it asymmetrically to dna02_left vs dna02_right through real
   synaptic weights; the 4/8 alternation is genuine stochastic single-neuron firing
-- LC4/LPLC2 looming response — these neurons fire when walls approach (lc4 ~1 spike/window
-  in calibration) — the looming circuit is real and active
+- LC4/LPLC2 looming response — LPLC2 baseline ~2.1 normalized from T4/T5 background
+  connectivity; rises to ~3.5 near walls. The circuit responds are real.
 
 **Programmed by us (`world.py`, `flow_encoder.py`):**
 - The physics equations (speed/heading update from DN rates)
 - SPEED_GAIN, TURN_GAIN, DRAG constants
-- Wall bounce logic — the fly does NOT genuinely avoid walls yet
 - Direction convention mapping velocity → T4a subtypes
+- The looming input injection itself (geometric wall distance → LPLC2 drive)
+- The output mapping (LPLC2 spike differential → escape heading change)
 
-**The gap:** LC4/LPLC2 are firing but not connected to navigation. Wall avoidance is
-hardcoded geometry, not brain output.
+**Architecture note on the looming path:** We're reading LPLC2 (a *sensor* neuron
+encoding "looming from the left") and mapping it directly to heading change. A more
+biologically honest approach would find a downstream *command* DN in the escape circuit
+(Giant Fiber → thoracic) and read that instead. The current approach works but skips
+the output stage of the escape circuit.
+
+**Baseline subtraction:** LPLC2 fires at ~2.1 normalized even in open field (T4/T5
+bleed-through). To get a clean wall-proximity signal, `world.py` subtracts
+`BRAIN_LOOM_BASELINE = 2.0` before threshold and gain. This is analogous to
+contrast normalization in a downstream neuron adapting to the background drive.
 
 ## Neuron group sizes (MaleCNS)
 
@@ -325,8 +334,8 @@ in the MaleCNS circuit and was dropped from `read_dn_rates`.
 |-------|-----------|--------|
 | T4a/b/c/d | ~835-895 | Input layer, driving well |
 | T5a/b/c/d | ~808-863 | Input layer, driving well |
-| LC4 | 55-71 | Looming — active, not yet read for nav |
-| LPLC2 | 91-94 | Looming — active, not yet read for nav |
+| LC4 | 55-71 | Looming — active, read for nav (baseline ~0.9) |
+| LPLC2 | 91-94 | **Looming escape** — wired to navigation (baseline ~2.1) |
 | DNa02 | 1 | **Turn signal** — primary motor output |
 | DNg100 | 1 | Silent (not T4a downstream) — dropped |
 
@@ -334,17 +343,28 @@ in the MaleCNS circuit and was dropped from `read_dn_rates`.
 
 - Fly moves under genuine brain control; DNa02 left/right differential drives turning
 - Turns emerge naturally from optical flow asymmetry when heading changes
-- Wall bounces are hardcoded; the brain's looming circuit fires but isn't wired to avoidance yet
-- Wings flap in browser based on speed; red glow when looming is high
+- Wall avoidance driven by LPLC2 differential: left looms more → escape right
+- Looming ring in browser split into left/right hemispheres showing which eye is hotter
+- Wings flap in browser based on speed
+- Stochastic: DNa02 is a single neuron per side — it will occasionally fire 0 spikes
+  in a 50-tick window; that's real single-cell noise, not a bug
+
+## Signal delay with --steps 50
+
+T4a → DNa02 takes ~4 synaptic hops × 18 ticks = 72 ticks minimum. With `--steps 50`,
+one window is too short to span the full chain in a single pass. Spikes continue
+propagating across advance() calls (spike ring buffer and voltages persist), so DNa02
+does fire correctly — but it reflects T4a state from ~3 windows ago. At rt=9x that's
+~135ms of real-time lag. Acceptable for navigation; noticeable for fast reactive control.
+Use `--steps 200` for full within-window propagation (slower, ~3fps).
 
 ## Next
 
-**Most neural-honest next step:** Wire LC4/LPLC2 output to wall avoidance.
-Read `counts[lplc2_left/right]` and use differential to bias heading when
-looming is high — then escape turns come from the actual looming circuit,
-not hardcoded geometry.
-
-Other ideas:
+- **Find a command DN downstream of the Giant Fiber escape circuit** in the MaleCNS graph.
+  Something that fires when LPLC2 fires and encodes escape direction. Read that instead
+  of reading LPLC2 directly — would translate at the *command* level (like DNa02) rather
+  than the *sensor* level (like current LPLC2 approach).
 - Add obstacles (circles) to `world.obstacles` for richer navigation
 - Brain viz: pipe spike counts per neuron over WebSocket → Three.js point cloud
-- Explore other DNs in the connectome that may respond to T4a (DNg13?)
+- Decouple physics from brain loop: run physics at 60fps with last-known DN rates,
+  update DN rates async when each brain frame completes → smoother on-screen motion

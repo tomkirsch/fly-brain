@@ -259,11 +259,25 @@ function drawFly(s) {
   ctx.restore();
 
   // Looming ring
-  if (loomGlow > 0.05) {
+  // Looming ring: split into left/right hemispheres so you can see which side is hotter.
+  // Coordinate check: fly faces h; fly's right = h+π/2 in y-down screen coords.
+  //   Right hemisphere arc: h → h+π  (clockwise, spans forward-right-back)
+  //   Left  hemisphere arc: h+π → h+2π (clockwise, spans back-left-forward)
+  const loomL = s.looming_left  || 0;
+  const loomR = s.looming_right || 0;
+  const ringR = sz * 2.8;
+  if (loomR > 0.03) {
     ctx.beginPath();
-    ctx.arc(x, y, sz * 2.5, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255, 80, 40, ${loomGlow * 0.6})`;
-    ctx.lineWidth = 1.5;
+    ctx.arc(x, y, ringR, h, h + Math.PI, false);
+    ctx.strokeStyle = `rgba(255, 100, 30, ${Math.min(1, loomR * 0.8)})`;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+  if (loomL > 0.03) {
+    ctx.beginPath();
+    ctx.arc(x, y, ringR, h + Math.PI, h + 2 * Math.PI, false);
+    ctx.strokeStyle = `rgba(255, 100, 30, ${Math.min(1, loomL * 0.8)})`;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
   }
 }
