@@ -109,6 +109,14 @@ def read_dn_rates(counts: np.ndarray, groups: dict, steps: int = 200):
     right_rate = counts[groups["dna02_right"]].mean() * norm if len(groups.get("dna02_right", [])) else 0.0
     return left_rate, right_rate
 
+def read_group_rate(counts: np.ndarray, groups: dict, key: str, steps: int = 200) -> float:
+    """Return a normalized mean spike count for an optional neuron group."""
+    arr = groups.get(key)
+    if arr is None or len(arr) == 0:
+        return 0.0
+    return float(counts[arr].mean() * (200.0 / steps))
+
+
 def read_looming_rates(counts: np.ndarray, groups: dict, steps: int = 200):
     """
     Returns (loom_left, loom_right) from LPLC2 spike counts, normalized to a
@@ -363,6 +371,7 @@ def main():
             left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
             loom_l, loom_r = read_looming_rates(brain.counts, groups, args.steps)
             escape_l, escape_r, escape_src = read_escape_dn_rates(brain.counts, groups, args.steps)
+            mech_rate = read_group_rate(brain.counts, groups, "mech_all", args.steps)
 
             # 4. Update world physics — use real wall-clock dt so fly speed is
             # independent of GPU throughput (rt=7x was making it 7× too slow).
@@ -381,6 +390,7 @@ def main():
                     "right_rate": round(float(right_rate), 2),
                     "mech_left": round(float(world.mech_left), 3),
                     "mech_right": round(float(world.mech_right), 3),
+                    "mech_rate": round(mech_rate, 2),
                     "frame": frame,
                 })
                 ws.broadcast(state)
@@ -398,6 +408,8 @@ def main():
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
                       f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
                       f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
+                      f"  mech={world.mech_left:.2f}/{world.mech_right:.2f}"
+                      f" mech_spk={mech_rate:.1f}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
                       f"  turn_loom={world.last_loom_turn:+.2f}"
                       f"  scatter={world.last_scatter_turn:+.2f}"
