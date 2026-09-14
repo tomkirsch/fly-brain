@@ -268,6 +268,8 @@ def main():
                         help="Seed world randomness for comparable A/B runs")
     parser.add_argument("--print-dn",  action="store_true",
                         help="Print per-neuron candidate DN rates on contact frames")
+    parser.add_argument("--mechanosensory-only", action="store_true",
+                        help="Disable T4/T5 and LC4/LPLC2 visual input; keep contact input")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
@@ -327,6 +329,13 @@ def main():
     if args.mech_gain is not None:
         flow_encoder.MECH_GAIN = float(args.mech_gain)
         print(f"Mechanosensory gain override: {flow_encoder.MECH_GAIN:.2f}")
+    if args.mechanosensory_only:
+        # Keep the real contact encoder active, but remove the visual input
+        # channels. This makes downstream activity attributable to JO-C/E
+        # input rather than mixed T4/T5 and looming drive.
+        flow_encoder.FLOW_GAIN = 0.0
+        flow_encoder.LOOM_GAIN = 0.0
+        print("Mechanosensory-only mode: visual and looming drive disabled")
 
     world   = World(width=args.width, height=args.height)
     ws      = WsBroadcaster(port=8765)
@@ -340,11 +349,14 @@ def main():
     ws.start()
     print(f"WebSocket: ws://localhost:8765")
 
-    if args.calibrate:
+    if args.calibrate and args.mechanosensory_only:
+        print("WARNING: --calibrate is visual calibration and is disabled in mechanosensory-only mode.")
+    if args.calibrate and not args.mechanosensory_only:
         print("First advance will JIT-compile Numba kernel (~30-60s) ...")
-        run_calibration(brain, groups, encoder, use_cuda=use_cuda,
-                        do_advance=do_advance,
-                        width=args.width, height=args.height)
+        if not args.mechanosensory_only:
+            run_calibration(brain, groups, encoder, use_cuda=use_cuda,
+                            do_advance=do_advance,
+                            width=args.width, height=args.height)
         # Continue into main loop after calibration
 
     # One-time seed: put T4/T5 driven neurons into the active set so the first
