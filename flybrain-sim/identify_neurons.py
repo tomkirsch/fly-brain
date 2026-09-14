@@ -66,12 +66,16 @@ TARGET_TYPES = {
     "mech_left": ("__DISCOVER__", "L"),
     "mech_right": ("__DISCOVER__", "R"),
     "mech_all": ("__DISCOVER__", "*"),
+    # JO-C and JO-E are the strongest first-pass candidates for static
+    # deflection/wind/gravity-like contact input; keep the broad pool too.
+    "mech_static": ("__STATIC__", "*"),
 }
 
 # MaleCNS uses subtype labels such as JO-A1 / JO-B1 rather than "JON".
 # Keep the family discovery broad, then trace individual subtypes before
 # assigning them to a contact pathway.
 MECH_TYPE_RE = r"(?i)(?:^jo[-_]|jon|johnston|chordot|campaniform|mechanosens|proprio)"
+MECH_STATIC_RE = r"(?i)^jo-(?:c|e)"
 
 # Some type names may differ slightly in the annotations — aliases tried if primary fails.
 TYPE_ALIASES = {
@@ -265,6 +269,8 @@ def cmd_identify(args):
             # auditable list of annotation types that actually existed in the
             # downloaded release.
             type_mask = df[type_col].astype(str).str.contains(MECH_TYPE_RE, regex=True, na=False)
+        elif type_name == "__STATIC__":
+            type_mask = df[type_col].astype(str).str.contains(MECH_STATIC_RE, regex=True, na=False)
         else:
             type_mask = resolve_type(df, type_col, type_name)
         if side == "*":
@@ -294,16 +300,20 @@ def cmd_identify(args):
     # represented as a peripheral sensory array rather than paired somata.
     # Use the discovered bilateral pool for both contact channels instead of
     # silently producing empty left/right groups.
-    if len(groups.get("mech_all", [])):
+    # Prefer the C/E static-deflection subset for the first contact
+    # experiment. Fall back to the full JO pool only if it is unavailable.
+    contact_pool = groups.get("mech_static", []) or groups.get("mech_all", [])
+    if contact_pool:
         if not len(groups.get("mech_left", [])):
-            groups["mech_left"] = groups["mech_all"]
+            groups["mech_left"] = contact_pool
             if "mech_left" in missing:
                 missing.remove("mech_left")
         if not len(groups.get("mech_right", [])):
-            groups["mech_right"] = groups["mech_all"]
+            groups["mech_right"] = contact_pool
             if "mech_right" in missing:
                 missing.remove("mech_right")
-        print(f"  mech bilateral fallback: {len(groups['mech_all'])} neurons")
+        source = "mech_static" if groups.get("mech_static", []) else "mech_all"
+        print(f"  mech bilateral fallback: {len(contact_pool)} neurons ({source})")
 
     if missing:
         print(f"\nWARNING: no neurons found for: {missing}")
