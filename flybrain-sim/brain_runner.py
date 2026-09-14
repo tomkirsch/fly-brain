@@ -266,6 +266,8 @@ def main():
                         help="Override mechanosensory injection gain for A/B tests")
     parser.add_argument("--seed",      type=int, default=None,
                         help="Seed world randomness for comparable A/B runs")
+    parser.add_argument("--print-dn",  action="store_true",
+                        help="Print per-neuron candidate DN rates on contact frames")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
@@ -412,6 +414,13 @@ def main():
                 for key in contact_dn_keys
             }
             contact_dn_peak = max(contact_dn_rates.values(), default=0.0)
+            if args.print_dn and (mech_input_l > 0.0 or mech_input_r > 0.0):
+                compact_dn = " ".join(
+                    f"{key}={value:.1f}" for key, value in contact_dn_rates.items()
+                    if value > 0.0
+                ) or "none"
+                print(f"  CONTACT_DN frame={frame} "
+                      f"mech_in={mech_input_l:.2f}/{mech_input_r:.2f} {compact_dn}")
 
             # 4. Update world physics — use real wall-clock dt so fly speed is
             # independent of GPU throughput (rt=7x was making it 7× too slow).
