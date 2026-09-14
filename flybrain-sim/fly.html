@@ -73,8 +73,18 @@ function interpState(a, b, t) {
 
 function currentInterp() {
   if (!toState) return state;
-  const alpha = (Date.now() - lastUpdateTime) / updateInterval;
-  return interpState(fromState, toState, alpha);
+  const elapsed_s = (Date.now() - lastUpdateTime) / 1000;
+  // Dead-reckon position forward using velocity — shows fly at its current estimated
+  // location rather than always chasing a position it already passed.
+  const x = toState.x + (toState.vx || 0) * elapsed_s;
+  const y = toState.y + (toState.vy || 0) * elapsed_s;
+  // Heading: lerp between snapshots (no angular velocity in state)
+  const alpha = Math.min(1, elapsed_s / (updateInterval / 1000));
+  const heading = lerpAngle(
+    fromState ? fromState.heading : toState.heading,
+    toState.heading, alpha
+  );
+  return { ...toState, x, y, heading };
 }
 
 // ---- resize ----
@@ -269,14 +279,14 @@ function drawFly(s) {
   if (loomR > 0.03) {
     ctx.beginPath();
     ctx.arc(x, y, ringR, h, h + Math.PI, false);
-    ctx.strokeStyle = `rgba(255, 100, 30, ${Math.min(1, loomR * 0.8)})`;
+    ctx.strokeStyle = `rgba(255, 120, 30, ${Math.min(1, loomR * 0.9)})`;  // orange = right
     ctx.lineWidth = 2.5;
     ctx.stroke();
   }
   if (loomL > 0.03) {
     ctx.beginPath();
     ctx.arc(x, y, ringR, h + Math.PI, h + 2 * Math.PI, false);
-    ctx.strokeStyle = `rgba(255, 100, 30, ${Math.min(1, loomL * 0.8)})`;
+    ctx.strokeStyle = `rgba(30, 210, 255, ${Math.min(1, loomL * 0.9)})`;  // cyan = left
     ctx.lineWidth = 2.5;
     ctx.stroke();
   }
