@@ -67,7 +67,10 @@ TARGET_TYPES = {
     "mech_right": ("__DISCOVER__", "R"),
 }
 
-MECH_TYPE_RE = r"(?i)(jon|johnston|chordot|campaniform|mechanosens|proprio)"
+# MaleCNS uses subtype labels such as JO-A1 / JO-B1 rather than "JON".
+# Keep the family discovery broad, then trace individual subtypes before
+# assigning them to a contact pathway.
+MECH_TYPE_RE = r"(?i)(^jo[-_]|jon|johnston|chordot|campaniform|mechanosens|proprio)"
 
 # Some type names may differ slightly in the annotations — aliases tried if primary fails.
 TYPE_ALIASES = {
