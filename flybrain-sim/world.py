@@ -98,11 +98,17 @@ class World:
         else:
             self._silent_frames = 0
             # DN differential drives turning.
-            # Scale down by wall-contact pressure so the escape signal (turn_loom)
-            # is not cancelled by the flow-following signal (turn_dn) during contact.
+            # Suppress turn_dn only when it presses INTO the contact wall.
+            # If it would help escape (same sign as away-from-wall direction), let it through.
+            # Corner contact (L≈R) leaves turn_dn unsuppressed; corner scatter handles deadlock.
             # The connectome has no DNp01→DNa02 inhibition; this is a sim design choice.
             mech_contact = max(self.mech_left, self.mech_right)
-            self.last_dn_turn = turn_diff * self.turn_gain * dt * (1.0 - mech_contact)
+            wall_pressing = (
+                (self.mech_right > self.mech_left and turn_diff > 0) or
+                (self.mech_left > self.mech_right and turn_diff < 0)
+            )
+            suppression = mech_contact if wall_pressing else 0.0
+            self.last_dn_turn = turn_diff * self.turn_gain * dt * (1.0 - suppression)
             self.heading += self.last_dn_turn
             # Neural looming escape: subtract baseline (T4/T5 background ~2.1 from calibration)
             # so we respond to wall-proximity signal above noise, not raw spike count.
