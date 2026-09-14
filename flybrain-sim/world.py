@@ -47,6 +47,12 @@ class World:
         self.vy = math.sin(self.heading) * self.speed
         self._silent_frames = 0
 
+        # Per-step control decomposition for console/HUD diagnostics. These are
+        # world-space translations of neural outputs, not extra control paths.
+        self.last_dn_turn = 0.0
+        self.last_loom_turn = 0.0
+        self.last_scatter_turn = 0.0
+
         # Sensor outputs (updated each step, read by FlowEncoder)
         self.looming_left  = 0.0
         self.looming_right = 0.0
@@ -65,6 +71,9 @@ class World:
         """
         forward_rate = (left_dn_rate + right_dn_rate) / 2.0
         turn_diff    = right_dn_rate - left_dn_rate
+        self.last_dn_turn = 0.0
+        self.last_loom_turn = 0.0
+        self.last_scatter_turn = 0.0
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
             # Brain is silent — wander with geometric looming-based steering.
@@ -72,13 +81,15 @@ class World:
             loom_total = (self.looming_left + self.looming_right) / 2
             loom_diff  = self.looming_right - self.looming_left
             turn_bias  = loom_diff * LOOM_TURN * dt
+            self.last_loom_turn = turn_bias
             rand_scale = 1.0 + loom_total * 8.0
             self.heading += turn_bias + np.random.uniform(-WANDER_TURN * rand_scale,
                                                            WANDER_TURN * rand_scale)
         else:
             self._silent_frames = 0
             # DN differential drives turning
-            self.heading += turn_diff * self.turn_gain * dt
+            self.last_dn_turn = turn_diff * self.turn_gain * dt
+            self.heading += self.last_dn_turn
             # Neural looming escape: subtract baseline (T4/T5 background ~2.1 from calibration)
             # so we respond to wall-proximity signal above noise, not raw spike count.
             adj_l = max(0.0, loom_l - BRAIN_LOOM_BASELINE)
@@ -86,9 +97,11 @@ class World:
             if max(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
                 # adj_l > adj_r → left wall closer → positive escape → turns right
                 escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
+                self.last_loom_turn = escape
                 # Both eyes above threshold: head-on or corner — add random kick
                 if min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
-                    escape += np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
+                    self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
+                    escape += self.last_scatter_turn
                 self.heading += escape
 
         self.heading = self.heading % (2 * math.pi)
@@ -167,6 +180,9 @@ class World:
             "speed": round(self.speed, 2),
             "looming_left":  round(self.looming_left, 3),
             "looming_right": round(self.looming_right, 3),
+            "dn_turn": round(self.last_dn_turn, 4),
+            "loom_turn": round(self.last_loom_turn, 4),
+            "scatter_turn": round(self.last_scatter_turn, 4),
             "width": self.width,
             "height": self.height,
             "obstacles": self.obstacles,

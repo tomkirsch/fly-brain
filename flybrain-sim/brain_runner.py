@@ -335,6 +335,9 @@ def main():
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
                       f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
+                      f"  turn_dn={world.last_dn_turn:+.2f}"
+                      f"  turn_loom={world.last_loom_turn:+.2f}"
+                      f"  scatter={world.last_scatter_turn:+.2f}"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
                       f"  rt={rt:.2f}x  nactive={brain.nactive[0]}")
 
