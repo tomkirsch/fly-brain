@@ -260,12 +260,21 @@ def main():
     parser.add_argument("--fps",       type=int, default=50)
     parser.add_argument("--steps",     type=int, default=50,
                         help="LIF ticks per frame (50=5ms fast, 200=20ms full; GPU makes 200 very slow)")
+    parser.add_argument("--frames",    type=int, default=0,
+                        help="Stop after this many frames (0 = run until Ctrl-C)")
+    parser.add_argument("--mech-gain", type=float, default=None,
+                        help="Override mechanosensory injection gain for A/B tests")
+    parser.add_argument("--seed",      type=int, default=None,
+                        help="Seed world randomness for comparable A/B runs")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
                         help="Run 200 steps on CPU+GPU and compare "
                              "per-neuron spike counts, then exit")
     args = parser.parse_args()
+
+    if args.seed is not None:
+        np.random.seed(args.seed)
 
     doomfly_path = find_doomfly(args.doomfly)
     sys.path.insert(0, str(doomfly_path))
@@ -276,6 +285,7 @@ def main():
         return
 
     from doom.engine import Brain
+    import flow_encoder
     from flow_encoder import FlowEncoder
     from world import World
     from ws_server import WsBroadcaster
@@ -311,6 +321,10 @@ def main():
 
     groups = load_groups(Path(__file__).parent / "neuron_groups.json", brain.ids)
     encoder = FlowEncoder(groups, brain.n)
+
+    if args.mech_gain is not None:
+        flow_encoder.MECH_GAIN = float(args.mech_gain)
+        print(f"Mechanosensory gain override: {flow_encoder.MECH_GAIN:.2f}")
 
     world   = World(width=args.width, height=args.height)
     ws      = WsBroadcaster(port=8765)
@@ -433,6 +447,9 @@ def main():
             actual_dt = max(elapsed, frame_dt)  # true wall time; feeds physics next frame
 
             frame += 1
+            if args.frames and frame >= args.frames:
+                print(f"Completed requested {args.frames} frames.")
+                break
             if frame % 10 == 0:   # print every 10 frames regardless of fps
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
