@@ -28,7 +28,8 @@ LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wa
 BRAIN_LOOM_BASELINE  = 2.0   # subtract: converts raw count to wall-proximity signal
 BRAIN_LOOM_THRESHOLD = 0.4   # adjusted spikes above baseline; ~0.4 = just outside open-field
 BRAIN_LOOM_TURN      = 3.0   # rad/sec per adjusted spike differential
-BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (corner/head-on)
+BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
+CORNER_PRESS_FRAMES  = 4     # consecutive frames at a corner before forcing a heading kick
 
 
 class World:
@@ -46,6 +47,7 @@ class World:
         self.vx = math.cos(self.heading) * self.speed
         self.vy = math.sin(self.heading) * self.speed
         self._silent_frames = 0
+        self._corner_frames = 0
 
         # Per-step control decomposition for console/HUD diagnostics. These are
         # world-space translations of neural outputs, not extra control paths.
@@ -98,7 +100,7 @@ class World:
                 # adj_l > adj_r → left wall closer → positive escape → turns right
                 escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
                 self.last_loom_turn = escape
-                # Both eyes above threshold: head-on or corner — add random kick
+                # Both eyes above threshold: head-on or symmetric wall — random kick
                 if min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
                     self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
                     escape += self.last_scatter_turn
@@ -126,6 +128,19 @@ class World:
             self.y = m;           self.vy = max(0.0, self.vy)
         elif self.y >= self.height - m:
             self.y = self.height - m; self.vy = min(0.0, self.vy)
+
+        # Corner press: fly pressed into two walls simultaneously → loom signals stay
+        # sub-threshold (both walls equal-distance → weak asymmetry → no scatter).
+        # Treat as tactile feedback: after CORNER_PRESS_FRAMES frames, kick heading 90°.
+        at_h = (self.x <= m) or (self.x >= self.width  - m)
+        at_v = (self.y <= m) or (self.y >= self.height - m)
+        if at_h and at_v:
+            self._corner_frames += 1
+            if self._corner_frames >= CORNER_PRESS_FRAMES:
+                self.heading += np.random.choice([-1.0, 1.0]) * (math.pi / 2)
+                self._corner_frames = 0
+        else:
+            self._corner_frames = 0
 
         self._update_looming()
 
