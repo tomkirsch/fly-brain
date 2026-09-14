@@ -97,8 +97,12 @@ class World:
                                                            WANDER_TURN * rand_scale)
         else:
             self._silent_frames = 0
-            # DN differential drives turning
-            self.last_dn_turn = turn_diff * self.turn_gain * dt
+            # DN differential drives turning.
+            # Scale down by wall-contact pressure so the escape signal (turn_loom)
+            # is not cancelled by the flow-following signal (turn_dn) during contact.
+            # The connectome has no DNp01→DNa02 inhibition; this is a sim design choice.
+            mech_contact = max(self.mech_left, self.mech_right)
+            self.last_dn_turn = turn_diff * self.turn_gain * dt * (1.0 - mech_contact)
             self.heading += self.last_dn_turn
             # Neural looming escape: subtract baseline (T4/T5 background ~2.1 from calibration)
             # so we respond to wall-proximity signal above noise, not raw spike count.

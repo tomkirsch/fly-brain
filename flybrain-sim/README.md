@@ -384,6 +384,13 @@ Use the diagnostic turn terms below to separate the contributions.
 - SPEED_GAIN, TURN_GAIN, DRAG constants
 - Direction convention mapping velocity → T4a subtypes
 - The output mapping (LPLC2 spike differential → escape heading change)
+- **Contact suppression of turn_dn:** during wall contact, the DNa02 flow-following
+  contribution is scaled by `(1 − contact_pressure)`. The connectome trace of DNp01's
+  548 downstream partners (top 50 ranked by synaptic weight) found no DNp01→DNa02
+  inhibition; the two pathways are genuinely separate in MaleCNS. In a real fly the
+  conflict doesn't arise because escape is ballistic — the fly clears the threat before
+  optical flow pulls it back. In the 2D sim it causes sustained wall-hugging, so we
+  suppress it as an explicit design choice.
 
 **Now computed from visual geometry (no longer scripted):**
 - LC4/LPLC2 drive: ray-cast expansion `v_radial = speed·cos(heading−φ)` summed per
