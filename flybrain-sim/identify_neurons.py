@@ -65,12 +65,13 @@ TARGET_TYPES = {
     # deliberately not hard-coded to one JON/chordotonal subtype.
     "mech_left": ("__DISCOVER__", "L"),
     "mech_right": ("__DISCOVER__", "R"),
+    "mech_all": ("__DISCOVER__", "*"),
 }
 
 # MaleCNS uses subtype labels such as JO-A1 / JO-B1 rather than "JON".
 # Keep the family discovery broad, then trace individual subtypes before
 # assigning them to a contact pathway.
-MECH_TYPE_RE = r"(?i)(^jo[-_]|jon|johnston|chordot|campaniform|mechanosens|proprio)"
+MECH_TYPE_RE = r"(?i)(?:^jo[-_]|jon|johnston|chordot|campaniform|mechanosens|proprio)"
 
 # Some type names may differ slightly in the annotations — aliases tried if primary fails.
 TYPE_ALIASES = {
@@ -266,7 +267,12 @@ def cmd_identify(args):
             type_mask = df[type_col].astype(str).str.contains(MECH_TYPE_RE, regex=True, na=False)
         else:
             type_mask = resolve_type(df, type_col, type_name)
-        if side_col:
+        if side == "*":
+            # Many JO rows have somaSide=nan because the organ is not
+            # represented as a left/right soma pair. Preserve them in an
+            # explicit bilateral pool rather than silently dropping them.
+            mask = type_mask
+        elif side_col:
             side_mask = df[side_col].astype(str).str.upper().str.startswith(side)
             mask = type_mask & side_mask
         else:
@@ -283,6 +289,21 @@ def cmd_identify(args):
         internal = idx[valid].tolist()
         groups[group_key] = internal
         print(f"  {group_key}: {len(bio_ids)} bio IDs → {len(internal)} in graph")
+
+    # JO sensory annotations commonly have somaSide=nan because the organ is
+    # represented as a peripheral sensory array rather than paired somata.
+    # Use the discovered bilateral pool for both contact channels instead of
+    # silently producing empty left/right groups.
+    if len(groups.get("mech_all", [])):
+        if not len(groups.get("mech_left", [])):
+            groups["mech_left"] = groups["mech_all"]
+            if "mech_left" in missing:
+                missing.remove("mech_left")
+        if not len(groups.get("mech_right", [])):
+            groups["mech_right"] = groups["mech_all"]
+            if "mech_right" in missing:
+                missing.remove("mech_right")
+        print(f"  mech bilateral fallback: {len(groups['mech_all'])} neurons")
 
     if missing:
         print(f"\nWARNING: no neurons found for: {missing}")
