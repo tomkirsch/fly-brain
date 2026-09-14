@@ -444,6 +444,32 @@ in the MaleCNS circuit and was dropped from `read_dn_rates`.
 - Stochastic: DNa02 is a single neuron per side — it will occasionally fire 0 spikes
   in a 50-tick window; that's real single-cell noise, not a bug
 
+## Wall collision model
+
+The arena boundary is a **hard clamp** — the fly cannot pass through a wall.
+This is the correct representation for a physical barrier.
+
+When the fly reaches a wall, the collision response:
+- **removes the inward velocity component** (the part pushing into the wall)
+- **preserves the tangential velocity** (the fly keeps moving along the wall)
+- **reports contact pressure** via `world.py`'s debounced `mech_in_left` / `mech_in_right`
+  values, which are injected into mechanosensory neuron groups by `flow_encoder.py`
+
+There is **no scripted heading kick** on wall contact. Escape must come from the
+connectome: JO-C/E mechanosensory neurons receive the contact drive, propagate
+through the MaleCNS graph, and activate DNa02/DNp01. This has been validated by
+the `--mechanosensory-only` ablation run: contact alone (no visual drive) produces
+DNa02/DNp01 activity with a ~6–12 frame propagation latency.
+
+The practical consequence is that the fly may slide along a wall for several frames
+while the neural escape signal builds. This is the expected behavior — the clamp
+prevents penetration while the neural system handles the steering response.
+
+Alternative collision schemes considered and rejected:
+- **Soft repulsion zone** — adds a programmed world-force that masks the neural signal
+- **Reflect/bounce** — not fly-like; defeats contact escape experiments
+- **Toroidal wraparound** — removes wall contact entirely, incompatible with mechanosensory work
+
 ## Signal delay with --steps 50
 
 T4a → DNa02 takes ~4 synaptic hops × 18 ticks = 72 ticks minimum. With `--steps 50`,
