@@ -37,6 +37,8 @@ class World:
         self.height = height
         self.margin = 40
 
+        self.turn_gain = TURN_GAIN  # adjustable at runtime (browser slider)
+
         self.x = float(width / 2)
         self.y = float(height / 2)
         self.heading = np.random.uniform(0, 2 * math.pi)
@@ -76,7 +78,7 @@ class World:
         else:
             self._silent_frames = 0
             # DN differential drives turning
-            self.heading += turn_diff * TURN_GAIN * dt
+            self.heading += turn_diff * self.turn_gain * dt
             # Neural looming escape: subtract baseline (T4/T5 background ~2.1 from calibration)
             # so we respond to wall-proximity signal above noise, not raw spike count.
             adj_l = max(0.0, loom_l - BRAIN_LOOM_BASELINE)

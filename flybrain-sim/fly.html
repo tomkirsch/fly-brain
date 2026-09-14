@@ -12,8 +12,8 @@
     font-size: 11px; line-height: 1.6;
     background: rgba(0,0,0,0.6); padding: 8px 12px;
     border: 1px solid #333; border-radius: 4px;
-    pointer-events: none;
   }
+  #hud input[type=range] { width: 100px; vertical-align: middle; cursor: pointer; }
   #status {
     position: fixed; bottom: 12px; left: 12px;
     font-size: 11px; color: #555;
@@ -28,6 +28,10 @@
   <div>speed <span id="spd">—</span></div>
   <div>L <span id="lrate">—</span>  R <span id="rrate">—</span></div>
   <div>loom L <span id="ll">—</span>  R <span id="lr">—</span></div>
+  <div style="margin-top:6px">
+    turn gain <input type="range" id="tg" min="0" max="4" step="0.05" value="1.5">
+    <span id="tgval">1.5</span>
+  </div>
 </div>
 <div id="status" id="st">connecting…</div>
 
@@ -134,6 +138,16 @@ function connect() {
   };
 }
 connect();
+
+const tgSlider = document.getElementById("tg");
+const tgVal    = document.getElementById("tgval");
+tgSlider.addEventListener("input", () => {
+  const v = parseFloat(tgSlider.value);
+  tgVal.textContent = v.toFixed(2);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ turn_gain: v }));
+  }
+});
 
 function updateHud(s) {
   document.getElementById("pos").textContent   = `${Math.round(s.x)}, ${Math.round(s.y)}`;

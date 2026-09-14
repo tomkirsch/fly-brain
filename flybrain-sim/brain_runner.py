@@ -247,6 +247,13 @@ def main():
 
     world   = World(width=args.width, height=args.height)
     ws      = WsBroadcaster(port=8765)
+
+    def handle_browser_msg(msg: dict):
+        if "turn_gain" in msg:
+            world.turn_gain = float(msg["turn_gain"])
+            print(f"  [ui] turn_gain → {world.turn_gain:.2f}")
+
+    ws.set_message_handler(handle_browser_msg)
     ws.start()
     print(f"WebSocket: ws://localhost:8765")
 

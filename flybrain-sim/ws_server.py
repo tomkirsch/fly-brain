@@ -22,6 +22,7 @@ class WsBroadcaster:
         self._loop: asyncio.AbstractEventLoop = None
         self._latest: str = "{}"
         self._lock = threading.Lock()
+        self._on_message = None
 
     def start(self):
         """Start the WebSocket server in a background daemon thread."""
@@ -50,13 +51,20 @@ class WsBroadcaster:
             print(f"WebSocket: ws://localhost:{self.port}")
             await asyncio.Future()   # run forever
 
+    def set_message_handler(self, fn):
+        """Register a callback fn(dict) called on any browser → server message."""
+        self._on_message = fn
+
     async def _handler(self, ws):
         self._clients.add(ws)
         try:
-            # Send latest state immediately on connect
             await ws.send(self._latest)
-            async for _ in ws:
-                pass   # browser doesn't send anything; just keep alive
+            async for raw in ws:
+                if self._on_message:
+                    try:
+                        self._on_message(json.loads(raw))
+                    except Exception:
+                        pass
         except websockets.ConnectionClosed:
             pass
         finally:
