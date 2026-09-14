@@ -29,8 +29,8 @@
   <div>L <span id="lrate">—</span>  R <span id="rrate">—</span></div>
   <div>loom L <span id="ll">—</span>  R <span id="lr">—</span></div>
   <div style="margin-top:6px">
-    turn gain <input type="range" id="tg" min="0" max="4" step="0.05" value="1.5">
-    <span id="tgval">1.5</span>
+    turn gain <input type="range" id="tg" min="0" max="4" step="0.05" value="0.75">
+    <span id="tgval">0.75</span>
   </div>
 </div>
 <div id="status" id="st">connecting…</div>
@@ -113,6 +113,7 @@ function connect() {
   ws.onopen  = () => {
     connected = true;
     document.getElementById("status").textContent = "connected";
+    ws.send(JSON.stringify({ turn_gain: parseFloat(tgSlider.value) }));
   };
   ws.onclose = () => {
     connected = false;
