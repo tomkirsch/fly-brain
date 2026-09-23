@@ -317,6 +317,9 @@ class BrainWorker:
             "loom_l": 0.0, "loom_r": 0.0,
             "escape_l": 0.0, "escape_r": 0.0, "escape_src": "none",
             "dnp04_l": 0.0, "dnp04_r": 0.0,
+            "t4a_l": 0.0, "t4a_r": 0.0,
+            "lc4_l": 0.0, "lc4_r": 0.0,
+            "lplc2_l": 0.0, "lplc2_r": 0.0,
             "mech_rate": 0.0, "mech_peak": 0.0, "mech_active": 0,
             "contact_dn_rates": {},
             "contact_dn_peak": 0.0,
@@ -344,6 +347,12 @@ class BrainWorker:
             escape_l, escape_r, src    = read_escape_dn_rates(self._brain.counts, self._groups, self._steps)
             dnp04_l  = read_group_rate(self._brain.counts, self._groups, "dnp04_left",  self._steps)
             dnp04_r  = read_group_rate(self._brain.counts, self._groups, "dnp04_right", self._steps)
+            t4a_l    = read_group_rate(self._brain.counts, self._groups, "t4a_left",    self._steps)
+            t4a_r    = read_group_rate(self._brain.counts, self._groups, "t4a_right",   self._steps)
+            lc4_l    = read_group_rate(self._brain.counts, self._groups, "lc4_left",    self._steps)
+            lc4_r    = read_group_rate(self._brain.counts, self._groups, "lc4_right",   self._steps)
+            lplc2_l  = read_group_rate(self._brain.counts, self._groups, "lplc2_left",  self._steps)
+            lplc2_r  = read_group_rate(self._brain.counts, self._groups, "lplc2_right", self._steps)
             mech_rate, mech_peak, mech_active = read_group_stats(
                 self._brain.counts, self._groups, "mech_static", self._steps)
             cdn = {k: read_group_rate(self._brain.counts, self._groups, k, self._steps)
@@ -355,6 +364,9 @@ class BrainWorker:
                     "loom_l": loom_l,   "loom_r": loom_r,
                     "escape_l": escape_l, "escape_r": escape_r, "escape_src": src,
                     "dnp04_l": dnp04_l, "dnp04_r": dnp04_r,
+                    "t4a_l": t4a_l,     "t4a_r": t4a_r,
+                    "lc4_l": lc4_l,     "lc4_r": lc4_r,
+                    "lplc2_l": lplc2_l, "lplc2_r": lplc2_r,
                     "mech_rate": mech_rate, "mech_peak": mech_peak, "mech_active": mech_active,
                     "contact_dn_rates": cdn,
                     "contact_dn_peak": max(cdn.values(), default=0.0),
@@ -602,6 +614,22 @@ def main():
                     "contact_dn":  contact_dn_rates,
                     "contact_dn_peak": round(contact_dn_peak, 2),
                     "frame": frame,
+                    "neural_groups": {
+                        "t4a_l":   round(r.get("t4a_l",   0.0), 2),
+                        "t4a_r":   round(r.get("t4a_r",   0.0), 2),
+                        "lc4_l":   round(r.get("lc4_l",   0.0), 2),
+                        "lc4_r":   round(r.get("lc4_r",   0.0), 2),
+                        "lplc2_l": round(r.get("lplc2_l", 0.0), 2),
+                        "lplc2_r": round(r.get("lplc2_r", 0.0), 2),
+                        "dna02_l": round(r["left"],     2),
+                        "dna02_r": round(r["right"],    2),
+                        "dnp04_l": round(r["dnp04_l"],  2),
+                        "dnp04_r": round(r["dnp04_r"],  2),
+                        "dnp01_l": round(r["escape_l"], 2),
+                        "dnp01_r": round(r["escape_r"], 2),
+                        "dng29_l": round(r["contact_l"], 2),
+                        "dng29_r": round(r["contact_r"], 2),
+                    },
                 })
                 ws.broadcast(state)
                 last_send = now
