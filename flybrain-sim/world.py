@@ -87,6 +87,8 @@ class World:
         self._baseline_samples: deque = deque(maxlen=_BASELINE_WINDOW)
         self._loom_baseline: float = BRAIN_LOOM_BASELINE
 
+        self._obs_frames: int = 0   # sustained contact frames against an obstacle
+
     def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
              loom_l: float = 0.0, loom_r: float = 0.0,
              contact_l: float = 0.0, contact_r: float = 0.0,
@@ -227,6 +229,43 @@ class World:
             self._wall_frames = 0
             self.mech_left = 0.0
             self.mech_right = 0.0
+
+        # Obstacle collision — push fly out and layer mech contact on top of wall signals.
+        obs_contact = False
+        for obs in self.obstacles:
+            dx = self.x - obs["cx"]
+            dy = self.y - obs["cy"]
+            dist = math.sqrt(dx * dx + dy * dy)
+            contact_r = obs["r"] + self.margin
+            if dist < contact_r:
+                obs_contact = True
+                # Push to obstacle surface
+                scale = contact_r / dist if dist > 1e-6 else 1.0
+                self.x = obs["cx"] + dx * scale
+                self.y = obs["cy"] + dy * scale
+                # Zero inward velocity component
+                nx = (dx / dist) if dist > 1e-6 else 1.0
+                ny = (dy / dist) if dist > 1e-6 else 0.0
+                inward = -(self.vx * nx + self.vy * ny)
+                if inward > 0:
+                    self.vx += nx * inward
+                    self.vy += ny * inward
+                # Map contact side: dot obstacle direction against body-left axis
+                to_obs_x, to_obs_y = -nx, -ny
+                left_x = -math.sin(self.heading)
+                left_y =  math.cos(self.heading)
+                side_dot = to_obs_x * left_x + to_obs_y * left_y
+                self._obs_frames += 1
+                pressure = min(1.0, self._obs_frames / MECH_CONTACT_FRAMES)
+                if side_dot > 0.3:
+                    self.mech_left  = max(self.mech_left,  pressure)
+                elif side_dot < -0.3:
+                    self.mech_right = max(self.mech_right, pressure)
+                else:
+                    self.mech_left  = max(self.mech_left,  pressure)
+                    self.mech_right = max(self.mech_right, pressure)
+        if not obs_contact:
+            self._obs_frames = 0
 
         self._update_looming()
 

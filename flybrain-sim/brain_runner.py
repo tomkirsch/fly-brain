@@ -18,6 +18,7 @@ Flags:
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -253,6 +254,28 @@ def _advance(brain, steps: int):
     )
 
 
+def _place_obstacles(world, n: int, r: int = 40, max_attempts: int = 200):
+    """Place n non-overlapping circular obstacles inside the arena."""
+    from world import World
+    m = world.margin + r + 10   # keep centre away from walls
+    placed = []
+    attempts = 0
+    while len(placed) < n and attempts < max_attempts:
+        attempts += 1
+        cx = np.random.uniform(m, world.width  - m)
+        cy = np.random.uniform(m, world.height - m)
+        # Reject if too close to an existing obstacle
+        too_close = any(
+            math.sqrt((cx - p["cx"])**2 + (cy - p["cy"])**2) < (r * 2 + world.margin)
+            for p in placed
+        )
+        # Reject if inside the fly's starting area (centre ±80px)
+        near_start = (abs(cx - world.x) < r + 80 and abs(cy - world.y) < r + 80)
+        if not too_close and not near_start:
+            placed.append({"cx": cx, "cy": cy, "r": float(r)})
+    world.obstacles = placed
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--doomfly",   default="../doomfly")
@@ -280,6 +303,8 @@ def main():
                         help="Zero out escape DN input to world — removes loom turn and scatter; DNa02-only mode")
     parser.add_argument("--no-scatter", action="store_true",
                         help="Disable bilateral-loom and corner-contact scatter kicks; keep directional loom turn")
+    parser.add_argument("--obstacles",  type=int, default=0,
+                        help="Place N circular obstacles in the arena (r=40px each)")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
@@ -353,6 +378,9 @@ def main():
         print("Mechanosensory-only mode: visual and looming drive disabled")
 
     world   = World(width=args.width, height=args.height)
+    if args.obstacles > 0:
+        _place_obstacles(world, args.obstacles)
+        print(f"Obstacles: {len(world.obstacles)} circles placed")
     ws      = WsBroadcaster(port=8765)
 
     def handle_browser_msg(msg: dict):
