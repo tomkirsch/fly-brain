@@ -14,12 +14,20 @@ Flags:
   --no-scatter  Disable bilateral-loom and corner scatter; keep directional loom turn.
   --doomfly     Path to DOOMFLY repo (default: ../doomfly)
   --width/--height  World canvas size (must match fly.html)
+
+Threading: brain advances in a background thread (BrainWorker); physics runs
+at full --fps using last-known DN rates between brain updates. Between updates
+the fly reuses the previous rates — biologically reasonable since DN firing
+persists between spike volleys. At 7x rt the brain updates ~28 times/sec
+while physics runs at 50fps, giving smooth motion at the cost of ~35ms
+latency in the neural feedback loop.
 """
 
 import argparse
 import json
 import math
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -255,6 +263,107 @@ def _advance(brain, steps: int):
     )
 
 
+class BrainWorker:
+    """Advances the connectome in a background thread.
+
+    Physics loop reads last-computed rates each frame without blocking.
+    Between brain updates the fly uses stale rates — biologically reasonable
+    since DN firing persists between spike volleys.
+
+    CUDA note: numba CUDA uses the primary device context which is shared
+    across threads. All device arrays are written exclusively from this
+    thread, so no concurrent kernel access occurs.
+    """
+
+    _CONTACT_DN_KEYS = (
+        "dna02_left", "dna02_right", "dnp01_left", "dnp01_right",
+        "dnp18_left", "dnp18_right", "dnp33_left", "dnp33_right",
+        "dnp55_left", "dnp55_right", "dnp73_left", "dnp73_right",
+        "dng29_left", "dng29_right", "dng99_left", "dng99_right",
+    )
+
+    def __init__(self, brain, groups: dict, do_advance, steps: int):
+        self._brain   = brain
+        self._groups  = groups
+        self._advance = do_advance
+        self._steps   = steps
+        self._lock    = threading.Lock()
+        self._pending = None
+        self._rates   = self._zero_rates()
+        self._running = False
+        self._thread  = threading.Thread(target=self._loop, daemon=True)
+
+    def start(self):
+        self._running = True
+        self._thread.start()
+
+    def stop(self):
+        self._running = False
+
+    def submit(self, drive: np.ndarray):
+        """Hand off drive array; latest always wins — old pending is dropped."""
+        with self._lock:
+            self._pending = drive
+
+    def rates(self) -> dict:
+        """Non-blocking snapshot of the most recently computed rates."""
+        with self._lock:
+            return dict(self._rates)
+
+    @staticmethod
+    def _zero_rates() -> dict:
+        return {
+            "left": 0.0, "right": 0.0,
+            "loom_l": 0.0, "loom_r": 0.0,
+            "escape_l": 0.0, "escape_r": 0.0, "escape_src": "none",
+            "dnp04_l": 0.0, "dnp04_r": 0.0,
+            "mech_rate": 0.0, "mech_peak": 0.0, "mech_active": 0,
+            "contact_dn_rates": {},
+            "contact_dn_peak": 0.0,
+            "contact_l": 0.0, "contact_r": 0.0,
+            "nactive": 0,
+        }
+
+    def _loop(self):
+        local_drive = None
+        while self._running:
+            with self._lock:
+                if self._pending is not None:
+                    local_drive = self._pending
+                    self._pending = None
+            if local_drive is None:
+                time.sleep(0.001)
+                continue
+
+            self._brain.drive[:] = local_drive
+            self._brain.counts[:] = 0
+            self._advance(self._brain, self._steps)
+
+            left_rate, right_rate      = read_dn_rates(self._brain.counts, self._groups, self._steps)
+            loom_l, loom_r             = read_looming_rates(self._brain.counts, self._groups, self._steps)
+            escape_l, escape_r, src    = read_escape_dn_rates(self._brain.counts, self._groups, self._steps)
+            dnp04_l  = read_group_rate(self._brain.counts, self._groups, "dnp04_left",  self._steps)
+            dnp04_r  = read_group_rate(self._brain.counts, self._groups, "dnp04_right", self._steps)
+            mech_rate, mech_peak, mech_active = read_group_stats(
+                self._brain.counts, self._groups, "mech_static", self._steps)
+            cdn = {k: read_group_rate(self._brain.counts, self._groups, k, self._steps)
+                   for k in self._CONTACT_DN_KEYS}
+
+            with self._lock:
+                self._rates = {
+                    "left": left_rate,  "right": right_rate,
+                    "loom_l": loom_l,   "loom_r": loom_r,
+                    "escape_l": escape_l, "escape_r": escape_r, "escape_src": src,
+                    "dnp04_l": dnp04_l, "dnp04_r": dnp04_r,
+                    "mech_rate": mech_rate, "mech_peak": mech_peak, "mech_active": mech_active,
+                    "contact_dn_rates": cdn,
+                    "contact_dn_peak": max(cdn.values(), default=0.0),
+                    "contact_l": cdn.get("dng29_left",  0.0),
+                    "contact_r": cdn.get("dng29_right", 0.0),
+                    "nactive": int(self._brain.nactive[0]),
+                }
+
+
 def _place_obstacles(world, n: int, r: int = 40, max_attempts: int = 200):
     """Place n non-overlapping circular obstacles inside the arena."""
     from world import World
@@ -403,8 +512,7 @@ def main():
                             width=args.width, height=args.height)
         # Continue into main loop after calibration
 
-    # One-time seed: put T4/T5 driven neurons into the active set so the first
-    # advance has something to propagate. After this we never wipe the active set.
+    # One-time seed for CPU active-set management; CUDA ignores it.
     init_drive = encoder.encode(
         x=world.x, y=world.y, vx=1.0, vy=0.0, heading=world.heading,
         world_width=world.width, world_height=world.height, margin=world.margin,
@@ -413,21 +521,26 @@ def main():
     if not use_cuda:
         _reseed_driven(brain, init_drive)
 
+    # Start brain worker thread — advances connectome in background so the
+    # physics loop runs at full fps without waiting for the GPU.
+    print("Starting brain worker thread ...")
+    worker = BrainWorker(brain, groups, do_advance, args.steps)
+    worker.submit(init_drive)
+    worker.start()
+
     frame_dt = 1.0 / args.fps
     last_send = time.monotonic()
-    actual_dt = frame_dt   # real wall-clock time per frame; updated each iteration
+    actual_dt = frame_dt
     frame = 0
 
-    print(f"\nRunning at {args.fps} fps target. Open fly.html in browser.")
+    print(f"\nRunning at {args.fps} fps target (brain in background). Open fly.html.")
     print("Ctrl+C to stop.\n")
 
     try:
         while True:
             t0 = time.monotonic()
 
-            # 1. Encode scene-based optical flow plus the contact state from
-            # the previous world step. Keep the input values for diagnostics;
-            # world.step() below computes the next contact state.
+            # 1. Encode current world state and hand off to brain worker.
             mech_input_l = 0.0 if args.no_mechanosensory else world.mech_left
             mech_input_r = 0.0 if args.no_mechanosensory else world.mech_right
             drive = encoder.encode(
@@ -435,45 +548,28 @@ def main():
                 world.width, world.height, world.margin, world.obstacles,
                 mech_l=mech_input_l, mech_r=mech_input_r,
             )
-            brain.drive[:] = drive
+            worker.submit(drive)
 
-            # 2. Advance 200 × 0.1ms LIF ticks = 20ms brain time per frame (matches 50fps).
-            # 20 ticks (2ms) was too short: the 1.8ms synaptic delay alone is 18 ticks,
-            # so spikes never reached downstream DNs and the fly ran on wander fallback.
-            brain.counts[:] = 0
-            if frame == 0:
-                print("First main-loop advance (Numba JIT if not cached) ...")
-            brain.cursor = do_advance(brain, args.steps)
-            if frame == 0:
-                print(f"  Done. nactive={brain.nactive[0]}")
+            # 2. Read last-known DN rates — non-blocking, no brain stall.
+            r = worker.rates()
+            left_rate        = r["left"]
+            right_rate       = r["right"]
+            loom_l           = r["loom_l"]
+            loom_r           = r["loom_r"]
+            escape_l         = r["escape_l"]
+            escape_r         = r["escape_r"]
+            escape_src       = r["escape_src"]
+            dnp04_l          = r["dnp04_l"]
+            dnp04_r          = r["dnp04_r"]
+            mech_rate        = r["mech_rate"]
+            mech_peak        = r["mech_peak"]
+            mech_active      = r["mech_active"]
+            contact_dn_rates = r["contact_dn_rates"]
+            contact_dn_peak  = r["contact_dn_peak"]
+            contact_l        = r["contact_l"]
+            contact_r        = r["contact_r"]
+            nactive          = r["nactive"]
 
-            # No hard cap — let nactive stabilize naturally.
-            # At FLOW_GAIN=20 the T4/T5 cascade should saturate within the visual
-            # processing layers without blasting the whole 166k network.
-            # If nactive still blooms to 166k, lower FLOW_GAIN further.
-
-            # 3. Read motor output
-            left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
-            loom_l, loom_r = read_looming_rates(brain.counts, groups, args.steps)
-            escape_l, escape_r, escape_src = read_escape_dn_rates(brain.counts, groups, args.steps)
-            dnp04_l = read_group_rate(brain.counts, groups, "dnp04_left",  args.steps)
-            dnp04_r = read_group_rate(brain.counts, groups, "dnp04_right", args.steps)
-            mech_rate, mech_peak, mech_active = read_group_stats(
-                brain.counts, groups, "mech_static", args.steps)
-            # Contact-window downstream diagnostics. These are reported as
-            # normalized rates so a contact frame can be compared directly
-            # with the existing visual/looming DN rates.
-            contact_dn_keys = ("dna02_left", "dna02_right", "dnp01_left", "dnp01_right",
-                               "dnp18_left", "dnp18_right", "dnp33_left", "dnp33_right",
-                               "dnp55_left", "dnp55_right", "dnp73_left", "dnp73_right",
-                               "dng29_left", "dng29_right", "dng99_left", "dng99_right")
-            contact_dn_rates = {
-                key: read_group_rate(brain.counts, groups, key, args.steps)
-                for key in contact_dn_keys
-            }
-            contact_dn_peak = max(contact_dn_rates.values(), default=0.0)
-            contact_l = contact_dn_rates.get("dng29_left",  0.0)
-            contact_r = contact_dn_rates.get("dng29_right", 0.0)
             if args.print_dn and (mech_input_l > 0.0 or mech_input_r > 0.0):
                 compact_dn = " ".join(
                     f"{key}={value:.1f}" for key, value in contact_dn_rates.items()
@@ -482,49 +578,45 @@ def main():
                 print(f"  CONTACT_DN frame={frame} "
                       f"mech_in={mech_input_l:.2f}/{mech_input_r:.2f} {compact_dn}")
 
-            # 4. Update world physics — use real wall-clock dt so fly speed is
-            # independent of GPU throughput (rt=7x was making it 7× too slow).
-            # Pass escape DN rates (DNp01 → DNp103 → LPLC2 fallback) as the looming
-            # escape signal.  world.step() uses these identically to LPLC2 rates — the
-            # difference is that DNp01 is a command DN downstream of the escape circuit,
-            # not a sensory neuron.
+            # 3. Physics step using last-known rates — runs every frame at full fps.
             loom_l_in = 0.0 if args.no_looming else escape_l
             loom_r_in = 0.0 if args.no_looming else escape_r
-            world.step(left_rate, right_rate, dt=actual_dt, loom_l=loom_l_in, loom_r=loom_r_in,
+            world.step(left_rate, right_rate, dt=actual_dt,
+                       loom_l=loom_l_in, loom_r=loom_r_in,
                        contact_l=contact_l, contact_r=contact_r,
                        no_scatter=args.no_scatter,
                        dnp04_l=dnp04_l, dnp04_r=dnp04_r)
 
-            # 5. Broadcast to browser
+            # 4. Broadcast to browser
             now = time.monotonic()
             if now - last_send >= frame_dt:
                 state = world.state_dict()
                 state.update({
                     "left_rate":  round(float(left_rate),  2),
                     "right_rate": round(float(right_rate), 2),
-                    "mech_left": round(float(mech_input_l), 3),
+                    "mech_left":  round(float(mech_input_l), 3),
                     "mech_right": round(float(mech_input_r), 3),
-                    "mech_rate": round(mech_rate, 2),
-                    "mech_peak": round(mech_peak, 2),
+                    "mech_rate":  round(mech_rate, 2),
+                    "mech_peak":  round(mech_peak, 2),
                     "mech_active": mech_active,
-                    "contact_dn": contact_dn_rates,
+                    "contact_dn":  contact_dn_rates,
                     "contact_dn_peak": round(contact_dn_peak, 2),
                     "frame": frame,
                 })
                 ws.broadcast(state)
                 last_send = now
 
-            # 6. Timing
+            # 5. Timing — physics frame rate; brain runs independently in background
             elapsed = time.monotonic() - t0
             if elapsed < frame_dt:
                 time.sleep(frame_dt - elapsed)
-            actual_dt = max(elapsed, frame_dt)  # true wall time; feeds physics next frame
+            actual_dt = max(elapsed, frame_dt)
 
             frame += 1
             if args.frames and frame >= args.frames:
                 print(f"Completed requested {args.frames} frames.")
                 break
-            if frame % 10 == 0:   # print every 10 frames regardless of fps
+            if frame % 10 == 0:
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
                       f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
@@ -540,10 +632,12 @@ def main():
                       f"  turn_contact={world.last_contact_turn:+.2f}"
                       f"  scatter={world.last_scatter_turn:+.2f}"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
-                      f"  rt={rt:.2f}x  nactive={brain.nactive[0]}")
+                      f"  rt={rt:.2f}x  nactive={nactive}")
 
     except KeyboardInterrupt:
         print("\nStopped.")
+    finally:
+        worker.stop()
 
 
 if __name__ == "__main__":
