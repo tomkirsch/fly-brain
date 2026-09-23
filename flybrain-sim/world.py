@@ -8,6 +8,7 @@ Coordinate system: x right, y down, heading in radians (0 = right, π/2 = down).
 """
 
 import math
+from collections import deque
 import numpy as np
 
 
@@ -33,6 +34,7 @@ BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
                              # was 3.0 for LPLC2 (adj peak ~1); DNp01 adj peak ~4 → scale ÷4
 BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
 MECH_CONTACT_FRAMES  = 3     # frames of sustained contact for full sensory pressure
+_BASELINE_WINDOW     = 200   # open-field samples for adaptive loom baseline
 
 # Neural contact escape via DNg29 — dominant JO-CM downstream target
 # (JO-CM → DNg29 weight 157.0, 16 synapses, rank 1 in MaleCNS trace).
@@ -79,6 +81,12 @@ class World:
         # World obstacles: list of circle dicts {cx, cy, r}
         self.obstacles = []
 
+        # Adaptive loom baseline: rolling mean of open-field escape DN samples.
+        # Updated only when signal is clearly below threshold (not near a wall).
+        # Falls back to BRAIN_LOOM_BASELINE until 50 samples accumulate.
+        self._baseline_samples: deque = deque(maxlen=_BASELINE_WINDOW)
+        self._loom_baseline: float = BRAIN_LOOM_BASELINE
+
     def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
              loom_l: float = 0.0, loom_r: float = 0.0,
              contact_l: float = 0.0, contact_r: float = 0.0,
@@ -122,10 +130,19 @@ class World:
             suppression = mech_contact if wall_pressing else 0.0
             self.last_dn_turn = turn_diff * self.turn_gain * dt * (1.0 - suppression)
             self.heading += self.last_dn_turn
-            # Neural looming escape: subtract baseline (T4/T5 background ~2.1 from calibration)
-            # so we respond to wall-proximity signal above noise, not raw spike count.
-            adj_l = max(0.0, loom_l - BRAIN_LOOM_BASELINE)
-            adj_r = max(0.0, loom_r - BRAIN_LOOM_BASELINE)
+            # Adaptive baseline: sample open-field escape DN rate to track background.
+            # Only sample when signal is well below threshold so wall frames don't
+            # inflate the baseline.  Mean stabilises after ~200 open-field frames.
+            peak_loom = max(loom_l, loom_r)
+            if peak_loom - self._loom_baseline < BRAIN_LOOM_THRESHOLD * 0.5:
+                self._baseline_samples.append(peak_loom)
+                if len(self._baseline_samples) >= 50:
+                    self._loom_baseline = float(np.mean(self._baseline_samples))
+
+            # Neural looming escape: subtract adaptive baseline to isolate
+            # wall-proximity signal above noise.
+            adj_l = max(0.0, loom_l - self._loom_baseline)
+            adj_r = max(0.0, loom_r - self._loom_baseline)
             if max(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
                 # adj_l > adj_r → left wall closer → positive escape → turns right
                 escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
@@ -273,4 +290,6 @@ class World:
             "width": self.width,
             "height": self.height,
             "obstacles": self.obstacles,
+            "loom_baseline": round(self._loom_baseline, 3),
+            "loom_baseline_n": len(self._baseline_samples),
         }
