@@ -308,6 +308,45 @@ fly.html             browser canvas renderer (open directly, no server)
   ws_server.broadcast() → fly.html (60fps interpolated canvas)
 ```
 
+## What this project is actually doing
+
+This is not a full fly simulation. It is a transfer test.
+
+The fly brain is a compressed evolutionary policy — every synapse weight was
+selected over hundreds of millions of generations because it improved survival.
+The connectome is the solution to a survival optimization problem, encoded in
+structure. When you run it with synthetic sensory input, you are asking: *does
+the policy generalize to a minimal world it was never shaped for?*
+
+The simulated fly's sensory world bears little resemblance to a real fly's: 72
+ray-cast rays instead of ~700 compound-eye facets, a 2D point mass instead of
+a 6-legged body, no olfaction, no halteres, no neuromodulatory state. Current
+is injected directly into T4/T5 neurons, bypassing the entire retina → lamina
+→ medulla preprocessing pipeline. The LIF operating point (temperature,
+arousal, hunger) is fixed and arbitrary.
+
+Why does it work anyway? The circuits driving navigation are sensitive to the
+*statistical structure* of the input, not the exact implementation. T4 neurons
+evolved to detect asymmetric motion — the source doesn't matter if the
+asymmetry is preserved. The DNa02 see-saw model (more flow on the right → turn
+right, confirmed in real walking flies) holds in 2D ray-cast geometry. Looming
+expansion signals drive LC4/LPLC2 → DNp01 threshold crossing whether the
+expanding object is a real predator or a wall distance derivative.
+
+**In scope (the coherent zone):** Reflex-grade, feedforward circuits with clear
+left/right structure. Optic flow steering, looming escape, mechanosensory
+contact response. The claim: *these circuits, given input with the right
+statistical structure, produce biologically consistent output.*
+
+**Out of scope:** Action selection, motivation, hunger/grooming priority,
+learning, neuromodulatory state. Any circuit requiring internal context beyond
+the LIF operating point will not behave correctly here.
+
+The claim is not "this is the fly." It is something more specific and
+defensible: the fly's navigation and escape circuits are robust enough that
+their evolved behavior survives transplantation into a radically simplified
+world.
+
 ## What's neural vs what's programmed
 
 This distinction is the central project rule: the connectome determines the
