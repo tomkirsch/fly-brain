@@ -81,7 +81,8 @@ class World:
 
     def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
              loom_l: float = 0.0, loom_r: float = 0.0,
-             contact_l: float = 0.0, contact_r: float = 0.0):
+             contact_l: float = 0.0, contact_r: float = 0.0,
+             no_scatter: bool = False):
         """
         Update fly position from descending neuron fire rates.
         left_dn_rate / right_dn_rate: normalized spike counts (~200-tick window)
@@ -130,7 +131,7 @@ class World:
                 escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
                 self.last_loom_turn = escape
                 # Both eyes above threshold: head-on or symmetric wall — random kick
-                if min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
+                if not no_scatter and min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
                     self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
                     escape += self.last_scatter_turn
                 self.heading += escape
@@ -138,7 +139,7 @@ class World:
             # zero adj_l/adj_r and zero turn_loom. One-shot kick on contact onset
             # (frame == MECH_CONTACT_FRAMES) breaks symmetry without repeating.
             # Sim design choice — no neural basis; documented in README.
-            if self.mech_left > 0 and self.mech_right > 0 and self._corner_frames == MECH_CONTACT_FRAMES:
+            if not no_scatter and self.mech_left > 0 and self.mech_right > 0 and self._corner_frames == MECH_CONTACT_FRAMES:
                 corner_kick = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
                 self.last_scatter_turn += corner_kick
                 self.heading += corner_kick

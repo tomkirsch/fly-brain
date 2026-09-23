@@ -10,6 +10,8 @@ Prerequisites:
 Flags:
   --calibrate   Run calibration check: inject constant flow, print DNa02 fire rate.
                 Target: ~26 Hz (excited side) vs ~2 Hz (other side).
+  --no-looming  Zero escape DN input — removes loom turn and scatter (DNa02-only mode).
+  --no-scatter  Disable bilateral-loom and corner scatter; keep directional loom turn.
   --doomfly     Path to DOOMFLY repo (default: ../doomfly)
   --width/--height  World canvas size (must match fly.html)
 """
@@ -274,6 +276,10 @@ def main():
                         help="Disable T4/T5 and LC4/LPLC2 visual input; keep contact input")
     parser.add_argument("--no-mechanosensory", action="store_true",
                         help="Ablate contact injection while retaining the same world/contact timing")
+    parser.add_argument("--no-looming", action="store_true",
+                        help="Zero out escape DN input to world — removes loom turn and scatter; DNa02-only mode")
+    parser.add_argument("--no-scatter", action="store_true",
+                        help="Disable bilateral-loom and corner-contact scatter kicks; keep directional loom turn")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
     parser.add_argument("--selftest",  action="store_true",
@@ -451,8 +457,11 @@ def main():
             # escape signal.  world.step() uses these identically to LPLC2 rates — the
             # difference is that DNp01 is a command DN downstream of the escape circuit,
             # not a sensory neuron.
-            world.step(left_rate, right_rate, dt=actual_dt, loom_l=escape_l, loom_r=escape_r,
-                       contact_l=contact_l, contact_r=contact_r)
+            loom_l_in = 0.0 if args.no_looming else escape_l
+            loom_r_in = 0.0 if args.no_looming else escape_r
+            world.step(left_rate, right_rate, dt=actual_dt, loom_l=loom_l_in, loom_r=loom_r_in,
+                       contact_l=contact_l, contact_r=contact_r,
+                       no_scatter=args.no_scatter)
 
             # 5. Broadcast to browser
             now = time.monotonic()
