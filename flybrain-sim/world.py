@@ -44,6 +44,14 @@ BRAIN_CONTACT_BASELINE  = 0.0   # DNg29 open-field baseline (expected ~0)
 BRAIN_CONTACT_THRESHOLD = 0.4   # adjusted spikes above baseline to trigger escape
 BRAIN_CONTACT_TURN      = 1.5   # rad/sec per spike differential (tune after test)
 
+# DNp04 — top LC4 downstream target (LC4→DNp04 weight 3189, rank 1).
+# Acts as a smooth pre-escape signal: directional turn + speed suppression.
+# Fires one hop downstream of LC4 (earlier in cascade than DNp01).
+DNP04_BASELINE   = 4.0    # open-field floor; adaptive baseline self-calibrates
+DNP04_THRESHOLD  = 0.3    # adjusted spikes above baseline to activate
+DNP04_TURN_GAIN  = 0.4    # rad/sec per spike differential (smooth vs. DNp01 scatter)
+DNP04_SPEED_SUP  = 0.08   # speed suppression fraction per spike above threshold
+
 
 class World:
     def __init__(self, width: int = 800, height: int = 600):
@@ -73,6 +81,7 @@ class World:
         self.last_loom_turn    = 0.0
         self.last_scatter_turn = 0.0
         self.last_contact_turn = 0.0
+        self.last_dnp04_turn   = 0.0
 
         # Sensor outputs (updated each step, read by FlowEncoder)
         self.looming_left  = 0.0
@@ -87,12 +96,19 @@ class World:
         self._baseline_samples: deque = deque(maxlen=_BASELINE_WINDOW)
         self._loom_baseline: float = BRAIN_LOOM_BASELINE
 
+        # DNp04 adaptive baseline — same pattern as loom baseline.
+        self._dnp04_baseline_samples: deque = deque(maxlen=_BASELINE_WINDOW)
+        self._dnp04_baseline: float = DNP04_BASELINE
+
+        self.last_dnp04_turn = 0.0
+
         self._obs_frames: int = 0   # sustained contact frames against an obstacle
 
     def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
              loom_l: float = 0.0, loom_r: float = 0.0,
              contact_l: float = 0.0, contact_r: float = 0.0,
-             no_scatter: bool = False):
+             no_scatter: bool = False,
+             dnp04_l: float = 0.0, dnp04_r: float = 0.0):
         """
         Update fly position from descending neuron fire rates.
         left_dn_rate / right_dn_rate: normalized spike counts (~200-tick window)
@@ -106,6 +122,7 @@ class World:
         self.last_loom_turn    = 0.0
         self.last_scatter_turn = 0.0
         self.last_contact_turn = 0.0
+        self.last_dnp04_turn   = 0.0
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
             # Brain is silent — wander with geometric looming-based steering.
@@ -164,6 +181,23 @@ class World:
                 self.heading += corner_kick
 
 
+        # DNp04 — smooth looming avoidance: directional turn + speed suppression.
+        # Direct LC4→DNp04 pathway (one hop); fires proportionally with looming before
+        # DNp01 reaches escape threshold.  Provides approach-avoidance steering while
+        # DNp01 handles the ballistic scatter trigger.
+        peak_dnp04 = max(dnp04_l, dnp04_r)
+        if peak_dnp04 - self._dnp04_baseline < DNP04_THRESHOLD * 0.5:
+            self._dnp04_baseline_samples.append(peak_dnp04)
+            if len(self._dnp04_baseline_samples) >= 50:
+                self._dnp04_baseline = float(np.mean(self._dnp04_baseline_samples))
+        adj_dnp04_l = max(0.0, dnp04_l - self._dnp04_baseline)
+        adj_dnp04_r = max(0.0, dnp04_r - self._dnp04_baseline)
+        dnp04_peak_adj = max(adj_dnp04_l, adj_dnp04_r)
+        if dnp04_peak_adj > DNP04_THRESHOLD:
+            dnp04_turn = (adj_dnp04_l - adj_dnp04_r) * DNP04_TURN_GAIN * dt
+            self.last_dnp04_turn = dnp04_turn
+            self.heading += dnp04_turn
+
         # Neural mechanosensory escape via DNg29 — runs regardless of visual drive state.
         # JO-CM → DNg29 is the dominant first-synapse pathway (weight 157, 16 syn).
         # contact_l > contact_r → left wall → positive turn → escapes right.
@@ -177,6 +211,11 @@ class World:
         self.heading = self.heading % (2 * math.pi)
 
         target_speed = forward_rate * SPEED_GAIN if forward_rate >= 0.01 else WANDER_SPEED
+        # DNp04 speed suppression: high bilateral looming → reduce forward speed.
+        # Capped at 60% reduction so the fly never stalls completely.
+        if dnp04_peak_adj > DNP04_THRESHOLD:
+            suppress = min(0.60, dnp04_peak_adj * DNP04_SPEED_SUP)
+            target_speed *= (1.0 - suppress)
         self.speed = self.speed * DRAG + target_speed * (1 - DRAG)
 
         self.vx = math.cos(self.heading) * self.speed
@@ -331,4 +370,7 @@ class World:
             "obstacles": self.obstacles,
             "loom_baseline": round(self._loom_baseline, 3),
             "loom_baseline_n": len(self._baseline_samples),
+            "dnp04_turn":    round(self.last_dnp04_turn, 4),
+            "dnp04_baseline": round(self._dnp04_baseline, 3),
+            "dnp04_baseline_n": len(self._dnp04_baseline_samples),
         }

@@ -60,6 +60,11 @@ TARGET_TYPES = {
     "dnp01_right": ("DNp01",  "R"),
     "dnp103_left": ("DNp103", "L"),
     "dnp103_right":("DNp103", "R"),
+    # DNp04 — top LC4 downstream target by synaptic weight (LC4→DNp04: 3189 total, rank 1).
+    # Also LPLC2→DNp04: 934 weight (rank 3).  Direct one-hop from LC4; paired L/R.
+    # Drives smooth directional looming avoidance + speed suppression (pre-escape signal).
+    "dnp04_left":  ("DNp04",  "L"),
+    "dnp04_right": ("DNp04",  "R"),
     # Mechanosensory contact-escape DN — dominant JO-CM downstream target
     # (JO-CM → DNg29 weight 157.0, 16 synapses, rank 1 in MaleCNS trace).
     # Injected directly because JO neurons lack soma-side annotation in MaleCNS.

@@ -222,6 +222,7 @@ def run_calibration(brain, groups: dict, encoder, steps: int = 500,
         "t4a_left", "t4a_right",           # input layer
         "lc4_left", "lc4_right",           # looming / lobula
         "lplc2_left", "lplc2_right",       # looming escape sensor
+        "dnp04_left", "dnp04_right",       # smooth looming avoidance DN (top LC4 target)
         "dnp01_left", "dnp01_right",       # escape command DN (downstream of LPLC2)
         "dnp103_left", "dnp103_right",     # escape command DN (highest LPLC2 weight)
         "dna02_left", "dna02_right",       # turn DNs
@@ -455,6 +456,8 @@ def main():
             left_rate, right_rate = read_dn_rates(brain.counts, groups, args.steps)
             loom_l, loom_r = read_looming_rates(brain.counts, groups, args.steps)
             escape_l, escape_r, escape_src = read_escape_dn_rates(brain.counts, groups, args.steps)
+            dnp04_l = read_group_rate(brain.counts, groups, "dnp04_left",  args.steps)
+            dnp04_r = read_group_rate(brain.counts, groups, "dnp04_right", args.steps)
             mech_rate, mech_peak, mech_active = read_group_stats(
                 brain.counts, groups, "mech_static", args.steps)
             # Contact-window downstream diagnostics. These are reported as
@@ -489,7 +492,8 @@ def main():
             loom_r_in = 0.0 if args.no_looming else escape_r
             world.step(left_rate, right_rate, dt=actual_dt, loom_l=loom_l_in, loom_r=loom_r_in,
                        contact_l=contact_l, contact_r=contact_r,
-                       no_scatter=args.no_scatter)
+                       no_scatter=args.no_scatter,
+                       dnp04_l=dnp04_l, dnp04_r=dnp04_r)
 
             # 5. Broadcast to browser
             now = time.monotonic()
@@ -524,6 +528,7 @@ def main():
                 rt = elapsed / frame_dt
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
                       f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
+                      f"  p04_L={dnp04_l:.1f} p04_R={dnp04_r:.1f}"
                       f"  loom_L={loom_l:.1f} loom_R={loom_r:.1f}"
                       f"  mech_in={mech_input_l:.2f}/{mech_input_r:.2f}"
                       f" mech_spk={mech_rate:.2f}"
@@ -531,6 +536,7 @@ def main():
                       f" dn_peak={contact_dn_peak:.1f}"
                       f"  turn_dn={world.last_dn_turn:+.2f}"
                       f"  turn_loom={world.last_loom_turn:+.2f}"
+                      f"  turn_p04={world.last_dnp04_turn:+.2f}"
                       f"  turn_contact={world.last_contact_turn:+.2f}"
                       f"  scatter={world.last_scatter_turn:+.2f}"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
