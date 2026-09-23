@@ -32,7 +32,11 @@ BRAIN_LOOM_THRESHOLD = 0.4   # adjusted spikes above baseline; DNp01 quantizes 0
                              # threshold fires when esc = 8 (adj = 4)
 BRAIN_LOOM_TURN      = 0.75  # rad/sec per adjusted spike differential
                              # was 3.0 for LPLC2 (adj peak ~1); DNp01 adj peak ~4 → scale ÷4
-BRAIN_LOOM_SCATTER   = 8.0   # rad/sec random kick when BOTH eyes above threshold (head-on)
+BRAIN_LOOM_SCATTER   = 1.5   # radians — fixed-magnitude one-shot kick (was 8.0*dt ≈ 1.44 rad
+                             # when brain stalled physics; now dt=0.020s so must not scale)
+SCATTER_COOLDOWN     = 25   # physics frames between scatter events (~0.5s at 50fps);
+                             # prevents cascade when frozen brain rates hold threshold for
+                             # multiple physics frames between brain updates
 MECH_CONTACT_FRAMES  = 3     # frames of sustained contact for full sensory pressure
 _BASELINE_WINDOW     = 200   # open-field samples for adaptive loom baseline
 
@@ -102,6 +106,7 @@ class World:
 
         self.last_dnp04_turn = 0.0
 
+        self._scatter_cooldown: int = 0   # frames remaining before scatter can fire again
         self._obs_frames: int = 0   # sustained contact frames against an obstacle
 
     def step(self, left_dn_rate: float, right_dn_rate: float, dt: float = 0.020,
@@ -123,6 +128,8 @@ class World:
         self.last_scatter_turn = 0.0
         self.last_contact_turn = 0.0
         self.last_dnp04_turn   = 0.0
+        if self._scatter_cooldown > 0:
+            self._scatter_cooldown -= 1
 
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
             # Brain is silent — wander with geometric looming-based steering.
@@ -167,18 +174,20 @@ class World:
                 escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
                 self.last_loom_turn = escape
                 # Both eyes above threshold: head-on or symmetric wall — random kick
-                if not no_scatter and min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
-                    self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
+                if not no_scatter and min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD and self._scatter_cooldown == 0:
+                    self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER
                     escape += self.last_scatter_turn
+                    self._scatter_cooldown = SCATTER_COOLDOWN
                 self.heading += escape
             # Corner-contact scatter: bilateral contact with symmetric DNp01 gives
             # zero adj_l/adj_r and zero turn_loom. One-shot kick on contact onset
             # (frame == MECH_CONTACT_FRAMES) breaks symmetry without repeating.
             # Sim design choice — no neural basis; documented in README.
-            if not no_scatter and self.mech_left > 0 and self.mech_right > 0 and self._corner_frames == MECH_CONTACT_FRAMES:
-                corner_kick = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER * dt
+            if not no_scatter and self.mech_left > 0 and self.mech_right > 0 and self._corner_frames == MECH_CONTACT_FRAMES and self._scatter_cooldown == 0:
+                corner_kick = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER
                 self.last_scatter_turn += corner_kick
                 self.heading += corner_kick
+                self._scatter_cooldown = SCATTER_COOLDOWN
 
 
         # DNp04 — smooth looming avoidance: directional turn + speed suppression.
