@@ -65,6 +65,17 @@ TARGET_TYPES = {
     # Drives smooth directional looming avoidance + speed suppression (pre-escape signal).
     "dnp04_left":  ("DNp04",  "L"),
     "dnp04_right": ("DNp04",  "R"),
+    # DNp02 — rank 2 LC4→downstream (total weight 1157), but primary drivers are central
+    # brain interneurons CB1280/CB2664/SAD053-055-064, not LC4. Downstream targets include
+    # GNG004 (gnathal ganglion / jaw motor) and pIP1 (courtship circuit). Not a visual
+    # looming DN — monitor only, not wired to physics.
+    "dnp02_left":  ("DNp02",  "L"),
+    "dnp02_right": ("DNp02",  "R"),
+    # DNp11 — rank 3 LC4→downstream (1008). Has LC4 input (ranks 8/14/15 upstream) but
+    # is bidirectionally coupled to DNp01 (both DNp01→DNp11 and DNp11→DNp01 present).
+    # Embedded in escape recurrent loop — monitor only, not wired to physics.
+    "dnp11_left":  ("DNp11",  "L"),
+    "dnp11_right": ("DNp11",  "R"),
     # Mechanosensory contact-escape DN — dominant JO-CM downstream target
     # (JO-CM → DNg29 weight 157.0, 16 synapses, rank 1 in MaleCNS trace).
     # Injected directly because JO neurons lack soma-side annotation in MaleCNS.
