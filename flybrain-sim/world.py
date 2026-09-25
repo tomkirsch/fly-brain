@@ -17,7 +17,7 @@ TURN_GAIN    = 0.75   # rad/sec per spike differential (tuned for ~9x realtime; 
 DRAG         = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE   = 280.0  # pixels at which looming starts (wider → earlier detection)
 WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
-WANDER_TURN  = 0.03   # rad/frame random drift
+WANDER_TURN  = 0.0    # rad/frame random drift  (temporarily off to observe — WSL + local in sync)
 LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wander mode
 
 # Neural looming escape (LC4/LPLC2 output read from brain)
