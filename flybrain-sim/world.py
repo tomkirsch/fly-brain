@@ -17,7 +17,7 @@ TURN_GAIN    = 0.75   # rad/sec per spike differential (tuned for ~9x realtime; 
 DRAG         = 0.85   # velocity decay per frame (smooths motion)
 LOOM_RANGE   = 280.0  # pixels at which looming starts (wider → earlier detection)
 WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
-WANDER_TURN  = 0.0    # rad/frame random drift  (temporarily off to observe — WSL + local in sync)
+WANDER_TURN  = 0.0    # rad/frame random drift
 LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wander mode
 
 # Neural looming escape (LC4/LPLC2 output read from brain)
@@ -55,6 +55,11 @@ DNP04_BASELINE   = 4.0    # open-field floor; adaptive baseline self-calibrates
 DNP04_THRESHOLD  = 0.3    # adjusted spikes above baseline to activate
 DNP04_TURN_GAIN  = 0.4    # rad/sec per spike differential (smooth vs. DNp01 scatter)
 DNP04_SPEED_SUP  = 0.08   # speed suppression fraction per spike above threshold
+
+# DNp01 display baseline — unconditional rolling mean (includes 8-spike noise events).
+# Separate from _loom_baseline (which gates escape and excludes above-threshold frames).
+# Used only for neural_viz display so the viz stays dark in open field.
+DNP01_BASELINE   = 4.0    # open-field starting estimate; self-calibrates
 
 
 class World:
@@ -103,6 +108,10 @@ class World:
         # DNp04 adaptive baseline — same pattern as loom baseline.
         self._dnp04_baseline_samples: deque = deque(maxlen=_BASELINE_WINDOW)
         self._dnp04_baseline: float = DNP04_BASELINE
+
+        # DNp01 display baseline — unconditional rolling mean of all escape DN samples.
+        self._dnp01_baseline_samples: deque = deque(maxlen=_BASELINE_WINDOW)
+        self._dnp01_baseline: float = DNP01_BASELINE
 
         self.last_dnp04_turn = 0.0
 
@@ -164,6 +173,11 @@ class World:
                 self._baseline_samples.append(peak_loom)
                 if len(self._baseline_samples) >= 50:
                     self._loom_baseline = float(np.mean(self._baseline_samples))
+
+            # DNp01 display baseline: unconditional mean (all frames, including 8-spike events).
+            self._dnp01_baseline_samples.append(max(loom_l, loom_r))
+            if len(self._dnp01_baseline_samples) >= 50:
+                self._dnp01_baseline = float(np.mean(self._dnp01_baseline_samples))
 
             # Neural looming escape: subtract adaptive baseline to isolate
             # wall-proximity signal above noise.
@@ -382,4 +396,6 @@ class World:
             "dnp04_turn":    round(self.last_dnp04_turn, 4),
             "dnp04_baseline": round(self._dnp04_baseline, 3),
             "dnp04_baseline_n": len(self._dnp04_baseline_samples),
+            "dnp01_baseline": round(self._dnp01_baseline, 3),
+            "dnp01_baseline_n": len(self._dnp01_baseline_samples),
         }
