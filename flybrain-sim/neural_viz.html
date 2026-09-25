@@ -55,11 +55,11 @@ const NODES = [
     // Steering DNs
     { id: "dna02_l", label: "DNa02 L", x: 530, y:  90, rgb: [ 30, 220,  90], get: s => (s.neural_groups?.dna02_l ?? s.left_rate  ?? 0) / MAX_RATE },
     { id: "dna02_r", label: "DNa02 R", x: 530, y: 165, rgb: [ 30, 220,  90], get: s => (s.neural_groups?.dna02_r ?? s.right_rate ?? 0) / MAX_RATE },
-    { id: "dnp04_l", label: "DNp04 L", x: 530, y: 255, rgb: [ 50, 200, 180], get: s => (s.neural_groups?.dnp04_l ?? 0) / MAX_RATE },
-    { id: "dnp04_r", label: "DNp04 R", x: 530, y: 330, rgb: [ 50, 200, 180], get: s => (s.neural_groups?.dnp04_r ?? 0) / MAX_RATE },
+    { id: "dnp04_l", label: "DNp04 L", x: 530, y: 255, rgb: [ 50, 200, 180], get: s => Math.max(0, (s.neural_groups?.dnp04_l ?? 0) - (s.dnp04_baseline ?? 4.0)) / 4.0 },
+    { id: "dnp04_r", label: "DNp04 R", x: 530, y: 330, rgb: [ 50, 200, 180], get: s => Math.max(0, (s.neural_groups?.dnp04_r ?? 0) - (s.dnp04_baseline ?? 4.0)) / 4.0 },
     // Escape DNs
-    { id: "dnp01_l", label: "DNp01 L", x: 750, y:  90, rgb: [255,  50,  50], get: s => (s.neural_groups?.dnp01_l ?? s.contact_dn?.dnp01_left  ?? 0) / MAX_RATE },
-    { id: "dnp01_r", label: "DNp01 R", x: 750, y: 165, rgb: [255,  50,  50], get: s => (s.neural_groups?.dnp01_r ?? s.contact_dn?.dnp01_right ?? 0) / MAX_RATE },
+    { id: "dnp01_l", label: "DNp01 L", x: 750, y:  90, rgb: [255,  50,  50], get: s => Math.max(0, (s.neural_groups?.dnp01_l ?? s.contact_dn?.dnp01_left  ?? 0) - (s.loom_baseline ?? 4.0)) / 4.0 },
+    { id: "dnp01_r", label: "DNp01 R", x: 750, y: 165, rgb: [255,  50,  50], get: s => Math.max(0, (s.neural_groups?.dnp01_r ?? s.contact_dn?.dnp01_right ?? 0) - (s.loom_baseline ?? 4.0)) / 4.0 },
     { id: "dng29_l", label: "DNg29 L", x: 750, y: 440, rgb: [200,  50, 255], get: s => (s.neural_groups?.dng29_l ?? s.contact_dn?.dng29_left  ?? 0) / MAX_RATE },
     { id: "dng29_r", label: "DNg29 R", x: 750, y: 505, rgb: [200,  50, 255], get: s => (s.neural_groups?.dng29_r ?? s.contact_dn?.dng29_right ?? 0) / MAX_RATE },
 ];
