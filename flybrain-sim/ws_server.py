@@ -2,7 +2,12 @@
 Asyncio WebSocket broadcaster.
 
 Runs in a background thread. Main loop calls broadcast() with a dict;
-all connected browser clients receive it as JSON.
+all connected browser clients receive the latest payload.
+
+Design: broadcast() only stores the latest message (no coroutine queue).
+A single _send_loop task in the asyncio event loop sends it, skipping
+stale queued frames. This prevents the coroutine backlog that causes
+WS fps degradation over multi-minute runs.
 """
 
 import asyncio
@@ -22,6 +27,7 @@ class WsBroadcaster:
         self._loop: asyncio.AbstractEventLoop = None
         self._latest: str = "{}"
         self._lock = threading.Lock()
+        self._pending = threading.Event()  # set when new data is ready
         self._on_message = None
 
     def start(self):
@@ -30,12 +36,11 @@ class WsBroadcaster:
         t.start()
 
     def broadcast(self, data: dict):
-        """Thread-safe: send data to all connected clients."""
+        """Thread-safe: update latest payload; send loop picks it up."""
         msg = json.dumps(data)
         with self._lock:
             self._latest = msg
-        if self._loop and self._clients:
-            asyncio.run_coroutine_threadsafe(self._send_all(msg), self._loop)
+        self._pending.set()
 
     # ---- internal ----
 
@@ -49,7 +54,22 @@ class WsBroadcaster:
                                     ping_interval=20, ping_timeout=10):
             log.info("WebSocket listening on ws://%s:%d", self.host, self.port)
             print(f"WebSocket: ws://localhost:{self.port}")
-            await asyncio.Future()   # run forever
+            await self._send_loop()
+
+    async def _send_loop(self):
+        """Single async task: sends latest message to all clients.
+        Runs at most once per event loop tick; never accumulates a backlog."""
+        loop = asyncio.get_event_loop()
+        last_sent = None
+        while True:
+            # Wait for new data without blocking the event loop
+            await loop.run_in_executor(None, self._pending.wait)
+            self._pending.clear()
+            with self._lock:
+                msg = self._latest
+            if msg != last_sent and self._clients:
+                await self._send_all(msg)
+                last_sent = msg
 
     def set_message_handler(self, fn):
         """Register a callback fn(dict) called on any browser → server message."""
@@ -58,7 +78,8 @@ class WsBroadcaster:
     async def _handler(self, ws):
         self._clients.add(ws)
         try:
-            await ws.send(self._latest)
+            with self._lock:
+                await ws.send(self._latest)
             async for raw in ws:
                 if self._on_message:
                     try:

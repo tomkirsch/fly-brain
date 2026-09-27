@@ -20,6 +20,12 @@ WANDER_SPEED = 40.0   # px/sec baseline wander when brain output is silent
 WANDER_TURN  = 0.0    # rad/frame random drift
 LOOM_TURN    = 2.5    # rad/sec turning bias per unit looming differential in wander mode
 
+# Angular inertia — smooth turns ramp through angular velocity; scatter bypasses.
+ANGULAR_ACCEL   = 15.0   # rad/s² — angular_vel tracks smooth demand
+MAX_ANGULAR_VEL = 10.0   # rad/s cap on smooth turns
+SPEED_TURN_COUP = 0.008  # reduces max_av with speed: max_av = MAX_ANGULAR_VEL / (1 + speed * SPEED_TURN_COUP)
+                         # at 100px/s → 5.6 rad/s; at 150px/s → 4.5 rad/s
+
 # Neural looming escape (LC4/LPLC2 output read from brain)
 # Calibration (--calibrate, no looming injected) confirmed LPLC2 baseline = ~2.1
 # from T4/T5 background connectivity.  Max near-wall signal = ~3.5.
@@ -38,6 +44,7 @@ SCATTER_COOLDOWN     = 25   # physics frames between scatter events (~0.5s at 50
                              # prevents cascade when frozen brain rates hold threshold for
                              # multiple physics frames between brain updates
 MECH_CONTACT_FRAMES  = 3     # frames of sustained contact for full sensory pressure
+MECH_MARGIN          = 12    # px — obstacle contact trigger radius beyond obstacle surface (fly body)
 _BASELINE_WINDOW     = 200   # open-field samples for adaptive loom baseline
 
 # Neural contact escape via DNg29 — dominant JO-CM downstream target
@@ -76,6 +83,7 @@ class World:
         self.speed = 30.0   # px/sec kickstart; brain takes over within a few frames
         self.vx = math.cos(self.heading) * self.speed
         self.vy = math.sin(self.heading) * self.speed
+        self.angular_vel = 0.0   # rad/s; smooth turn inertia (scatter bypasses)
         self._silent_frames = 0
         self._corner_frames = 0
         self._wall_frames = 0
@@ -140,8 +148,14 @@ class World:
         if self._scatter_cooldown > 0:
             self._scatter_cooldown -= 1
 
+        # Smooth turn demand accumulated from all neural sources (rad/s).
+        # Applied through angular_vel with inertia at the end of step().
+        # Scatter kicks bypass this and hit self.heading directly.
+        smooth_demand = 0.0
+
         if forward_rate < 0.01 and abs(turn_diff) < 0.01:
             # Brain is silent — wander with geometric looming-based steering.
+            # smooth_demand stays 0; angular_vel decays toward 0 naturally below.
             self._silent_frames += 1
             loom_total = (self.looming_left + self.looming_right) / 2
             loom_diff  = self.looming_right - self.looming_left
@@ -163,8 +177,10 @@ class World:
                 (self.mech_left > self.mech_right and turn_diff < 0)
             )
             suppression = mech_contact if wall_pressing else 0.0
-            self.last_dn_turn = turn_diff * self.turn_gain * dt * (1.0 - suppression)
-            self.heading += self.last_dn_turn
+            dn_demand = turn_diff * self.turn_gain * (1.0 - suppression)
+            self.last_dn_turn = dn_demand * dt
+            smooth_demand += dn_demand
+
             # Adaptive baseline: sample open-field escape DN rate to track background.
             # Only sample when signal is well below threshold so wall frames don't
             # inflate the baseline.  Mean stabilises after ~200 open-field frames.
@@ -185,14 +201,15 @@ class World:
             adj_r = max(0.0, loom_r - self._loom_baseline)
             if max(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD:
                 # adj_l > adj_r → left wall closer → positive escape → turns right
-                escape = (adj_l - adj_r) * BRAIN_LOOM_TURN * dt
-                self.last_loom_turn = escape
-                # Both eyes above threshold: head-on or symmetric wall — random kick
+                loom_demand = (adj_l - adj_r) * BRAIN_LOOM_TURN
+                self.last_loom_turn = loom_demand * dt
+                smooth_demand += loom_demand
+                # Both eyes above threshold: head-on or symmetric wall — random kick.
+                # Applied directly to heading (ballistic escape; bypasses angular inertia).
                 if not no_scatter and min(adj_l, adj_r) > BRAIN_LOOM_THRESHOLD and self._scatter_cooldown == 0:
                     self.last_scatter_turn = np.random.choice([-1.0, 1.0]) * BRAIN_LOOM_SCATTER
-                    escape += self.last_scatter_turn
+                    self.heading += self.last_scatter_turn
                     self._scatter_cooldown = SCATTER_COOLDOWN
-                self.heading += escape
             # Corner-contact scatter: bilateral contact with symmetric DNp01 gives
             # zero adj_l/adj_r and zero turn_loom. One-shot kick on contact onset
             # (frame == MECH_CONTACT_FRAMES) breaks symmetry without repeating.
@@ -217,9 +234,9 @@ class World:
         adj_dnp04_r = max(0.0, dnp04_r - self._dnp04_baseline)
         dnp04_peak_adj = max(adj_dnp04_l, adj_dnp04_r)
         if dnp04_peak_adj > DNP04_THRESHOLD:
-            dnp04_turn = (adj_dnp04_l - adj_dnp04_r) * DNP04_TURN_GAIN * dt
-            self.last_dnp04_turn = dnp04_turn
-            self.heading += dnp04_turn
+            dnp04_demand = (adj_dnp04_l - adj_dnp04_r) * DNP04_TURN_GAIN
+            self.last_dnp04_turn = dnp04_demand * dt
+            smooth_demand += dnp04_demand
 
         # Neural mechanosensory escape via DNg29 — runs regardless of visual drive state.
         # JO-CM → DNg29 is the dominant first-synapse pathway (weight 157, 16 syn).
@@ -227,9 +244,18 @@ class World:
         adj_cl = max(0.0, contact_l - BRAIN_CONTACT_BASELINE)
         adj_cr = max(0.0, contact_r - BRAIN_CONTACT_BASELINE)
         if max(adj_cl, adj_cr) > BRAIN_CONTACT_THRESHOLD:
-            contact_escape = (adj_cl - adj_cr) * BRAIN_CONTACT_TURN * dt
-            self.last_contact_turn = contact_escape
-            self.heading += contact_escape
+            # Mechanosensory reflex: bypass angular inertia, apply directly to heading.
+            contact_turn = (adj_cl - adj_cr) * BRAIN_CONTACT_TURN * dt
+            self.last_contact_turn = contact_turn
+            self.heading += contact_turn
+
+        # Angular inertia: ramp angular_vel toward accumulated smooth demand.
+        # In wander mode smooth_demand == 0, so angular_vel decays toward 0.
+        # Max turn rate is speed-dependent — fast flight → wider arcs.
+        self.angular_vel += (smooth_demand - self.angular_vel) * ANGULAR_ACCEL * dt
+        max_av = MAX_ANGULAR_VEL / (1.0 + self.speed * SPEED_TURN_COUP)
+        self.angular_vel = float(np.clip(self.angular_vel, -max_av, max_av))
+        self.heading += self.angular_vel * dt
 
         self.heading = self.heading % (2 * math.pi)
 
@@ -274,18 +300,24 @@ class World:
             self._corner_frames = 0
             self._wall_frames += 1
             pressure = min(1.0, self._wall_frames / MECH_CONTACT_FRAMES)
-            # Left/right are body-side channels. For top/bottom contact, use
-            # the side toward which the fly is facing as a stable 2-D proxy.
-            if at_h:
-                if self.x <= m:
-                    self.mech_left = pressure
-                else:
-                    self.mech_right = pressure
+            # Direction from fly toward the wall (outward), then dot against body-left axis.
+            # Same dot-product logic as obstacle contact — works for all wall orientations.
+            wall_dx = (-1.0 if self.x <= m else 1.0) if at_h else 0.0
+            wall_dy = (-1.0 if self.y <= m else 1.0) if at_v else 0.0
+            wall_len = math.sqrt(wall_dx * wall_dx + wall_dy * wall_dy)
+            if wall_len > 0:
+                wall_dx /= wall_len
+                wall_dy /= wall_len
+            left_x = -math.sin(self.heading)
+            left_y =  math.cos(self.heading)
+            side_dot = wall_dx * left_x + wall_dy * left_y
+            if side_dot > 0.15:
+                self.mech_left = pressure
+            elif side_dot < -0.15:
+                self.mech_right = pressure
             else:
-                if math.sin(self.heading) <= 0:
-                    self.mech_left = pressure
-                else:
-                    self.mech_right = pressure
+                self.mech_left = pressure
+                self.mech_right = pressure
         else:
             self._corner_frames = 0
             self._wall_frames = 0
@@ -298,7 +330,7 @@ class World:
             dx = self.x - obs["cx"]
             dy = self.y - obs["cy"]
             dist = math.sqrt(dx * dx + dy * dy)
-            contact_r = obs["r"] + self.margin
+            contact_r = obs["r"] + MECH_MARGIN
             if dist < contact_r:
                 obs_contact = True
                 # Push to obstacle surface
@@ -380,6 +412,7 @@ class World:
             "vx": round(self.vx, 2),
             "vy": round(self.vy, 2),
             "speed": round(self.speed, 2),
+            "angular_vel": round(self.angular_vel, 3),
             "looming_left":  round(self.looming_left, 3),
             "looming_right": round(self.looming_right, 3),
             "dn_turn":      round(self.last_dn_turn,      4),

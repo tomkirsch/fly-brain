@@ -24,6 +24,8 @@ latency in the neural feedback loop.
 """
 
 import argparse
+import gc
+import datetime
 import json
 import math
 import sys
@@ -376,7 +378,9 @@ class BrainWorker:
                 }
 
 
-def _place_obstacles(world, n: int, r: int = 40, max_attempts: int = 200):
+def _place_obstacles(world, n: int, r: int = None, max_attempts: int = 200):
+    if r is None:
+        r = max(20, int(40 * world.width / 800))
     """Place n non-overlapping circular obstacles inside the arena."""
     from world import World
     m = world.margin + r + 10   # keep centre away from walls
@@ -405,6 +409,7 @@ def main():
     parser.add_argument("--height",    type=int, default=600)
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--fps",       type=int, default=50)
+    parser.add_argument("--verbose",    action="store_true", help="Print per-frame diagnostics")
     parser.add_argument("--steps",     type=int, default=50,
                         help="LIF ticks per frame (50=5ms fast, 200=20ms full; GPU makes 200 very slow)")
     parser.add_argument("--frames",    type=int, default=0,
@@ -542,9 +547,13 @@ def main():
 
     frame_dt = 1.0 / args.fps
     last_send = time.monotonic()
+    gc.disable()           # manual GC only; prevents surprise gen2 pauses mid-frame
+    gc.collect()           # one full collect before loop starts
     actual_dt = frame_dt
     frame = 0
 
+    log_start = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[START] {log_start}  fps={args.fps}  obstacles={args.obstacles}  steps={args.steps}", flush=True)
     print(f"\nRunning at {args.fps} fps target (brain in background). Open fly.html.")
     print("Ctrl+C to stop.\n")
 
@@ -591,8 +600,8 @@ def main():
                       f"mech_in={mech_input_l:.2f}/{mech_input_r:.2f} {compact_dn}")
 
             # 3. Physics step using last-known rates — runs every frame at full fps.
-            loom_l_in = 0.0 if args.no_looming else escape_l
-            loom_r_in = 0.0 if args.no_looming else escape_r
+            loom_l_in = 0.0 if args.no_looming else r["lplc2_l"]
+            loom_r_in = 0.0 if args.no_looming else r["lplc2_r"]
             world.step(left_rate, right_rate, dt=actual_dt,
                        loom_l=loom_l_in, loom_r=loom_r_in,
                        contact_l=contact_l, contact_r=contact_r,
@@ -631,6 +640,9 @@ def main():
                         "dng29_r": round(r["contact_r"], 2),
                     },
                 })
+                rays = getattr(encoder, "last_loom_rays", None)
+                if rays is not None:
+                    state["loom_rays"] = rays.round(3).tolist()
                 ws.broadcast(state)
                 last_send = now
 
@@ -641,11 +653,13 @@ def main():
             actual_dt = max(elapsed, frame_dt)
 
             frame += 1
+            if frame % 10 == 0:
+                gc.collect(0)
             if args.frames and frame >= args.frames:
                 print(f"Completed requested {args.frames} frames.")
                 break
-            if frame % 10 == 0:
-                rt = elapsed / frame_dt
+            rt = elapsed / frame_dt
+            if args.verbose and frame % 10 == 0:
                 print(f"  frame {frame}  DN_L={left_rate:.1f} DN_R={right_rate:.1f}"
                       f"  esc_L={escape_l:.1f} esc_R={escape_r:.1f} [{escape_src}]"
                       f"  p04_L={dnp04_l:.1f} p04_R={dnp04_r:.1f}"
@@ -661,6 +675,9 @@ def main():
                       f"  scatter={world.last_scatter_turn:+.2f}"
                       f"  spd={world.speed:.0f}px/s  pos=({world.x:.0f},{world.y:.0f})"
                       f"  rt={rt:.2f}x  nactive={nactive}")
+            if frame % 500 == 0:
+                ts = datetime.datetime.now().strftime("%H:%M:%S")
+                print(f"[HB] {ts}  frame={frame}  rt={rt:.2f}x  nactive={nactive}", flush=True)
 
     except KeyboardInterrupt:
         print("\nStopped.")

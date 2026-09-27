@@ -114,6 +114,7 @@ class FlowEncoder:
         # v_radial > 0 → moving toward that column → expansion signal
         v_radial  = speed * np.cos(heading - angles)
         expansion = np.maximum(0.0, v_radial) * inv_d
+        self.last_loom_rays = expansion          # per-ray, for WS broadcast
         left_loom  = float(np.dot(self._left_mask,  expansion))
         right_loom = float(np.dot(self._right_mask, expansion))
 
