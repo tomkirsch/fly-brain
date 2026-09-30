@@ -405,8 +405,8 @@ def _place_obstacles(world, n: int, r: int = None, max_attempts: int = 200):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--doomfly",   default="../doomfly")
-    parser.add_argument("--width",     type=int, default=800)
-    parser.add_argument("--height",    type=int, default=600)
+    parser.add_argument("--width",     type=int, default=1600)
+    parser.add_argument("--height",    type=int, default=1200)
     parser.add_argument("--calibrate", action="store_true")
     parser.add_argument("--fps",       type=int, default=50)
     parser.add_argument("--verbose",    action="store_true", help="Print per-frame diagnostics")
@@ -430,7 +430,7 @@ def main():
                         help="Zero out escape DN input to world — removes loom turn and scatter; DNa02-only mode")
     parser.add_argument("--no-scatter", action="store_true",
                         help="Disable bilateral-loom and corner-contact scatter kicks; keep directional loom turn")
-    parser.add_argument("--obstacles",  type=int, default=0,
+    parser.add_argument("--obstacles",  type=int, default=4,
                         help="Place N circular obstacles in the arena (r=40px each)")
     parser.add_argument("--cpu",       action="store_true",
                         help="Force the CPU (numba njit) engine")
