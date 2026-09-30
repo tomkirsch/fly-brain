@@ -226,10 +226,9 @@ class World:
         # DNp01 reaches escape threshold.  Provides approach-avoidance steering while
         # DNp01 handles the ballistic scatter trigger.
         peak_dnp04 = max(dnp04_l, dnp04_r)
-        if peak_dnp04 - self._dnp04_baseline < DNP04_THRESHOLD * 0.5:
-            self._dnp04_baseline_samples.append(peak_dnp04)
-            if len(self._dnp04_baseline_samples) >= 50:
-                self._dnp04_baseline = float(np.mean(self._dnp04_baseline_samples))
+        self._dnp04_baseline_samples.append(peak_dnp04)
+        if len(self._dnp04_baseline_samples) >= 50:
+            self._dnp04_baseline = float(np.percentile(self._dnp04_baseline_samples, 20))
         adj_dnp04_l = max(0.0, dnp04_l - self._dnp04_baseline)
         adj_dnp04_r = max(0.0, dnp04_r - self._dnp04_baseline)
         dnp04_peak_adj = max(adj_dnp04_l, adj_dnp04_r)
