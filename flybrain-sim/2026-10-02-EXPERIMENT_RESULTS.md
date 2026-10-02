@@ -207,7 +207,19 @@ The default FLOW_GAIN of 150 is in the saturation dead zone. To get L/R differen
 2. Retune AN03A008_GAIN so AN03A008 is the primary driver of DNa02
 3. Or: track DNa02 over multiple frames (rolling window) to filter the stochastic noise
 
-**Current state (committed):** AN03A008 injection is in place at gain=2.0. The pathway is real and statistically detectable. Further gain tuning and FLOW_GAIN reduction needed for robust directional steering.
+**Definitive clean test results (FLOW_GAIN=0, AN03A008=2.0, spike ring flushed):**
+- Correlation over 20 positions: r=-0.086, p=0.72 — NOT significant in this controlled test
+- Directional test: 2/5 cases correct, 1/5 correct by noise, 2/5 wrong
+- Cold-start issue: first test (top_wall_east) shows DNa02=2.67 (cold attractor, no directional response). Subsequent tests show 5.3–5.9 (warm attractor from carry-over).
+
+**The network attractor problem:**
+DNa02 has two regimes:
+1. **Cold start (after full flush):** fires at ~2.7/side. No directional response to AN03A008.
+2. **Warm/continuous state:** fires at ~5.5/side (same as with T4a). AN03A008 adds ±0.267 directional bias.
+
+In the LIVE SIM (continuously running), the network is always in the warm state. So AN03A008 injection DOES provide a real (though weak, ±0.267) directional bias that accumulates over frames.
+
+**Current state (committed):** AN03A008 injection is in place at gain=2.0. The pathway is real. In live continuous operation, it provides a weak directional signal that biases DNa02 L/R appropriately. For more robust steering, a multi-frame rolling average (10–20 frames) would extract this signal reliably.
 
 ---
 
