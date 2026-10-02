@@ -111,6 +111,37 @@ DNp02 is rank 6 in LC4 downstream (weight 627, bilateral). DNp11 has LC4 as only
 
 ---
 
+## 6. DNa02 Input Source Trace (Extended Analysis)
+
+**Method:** `python3 trace_dn.py DNa02 --top 15`, then traced DNa02's #1 upstream partner (AN03A008).
+
+**DNa02 upstream top 15:** AN03A008 L+R (~200 weight each), LAL018 (68–88), GNG521 (86), CB0431 (64–84), **DNa03 L+R** (70–82), **DNae005 L+R** (70–81), PS013 L+R (73–76), VES072 L+R (67–72)
+
+**T4a, LC4, LPLC2: absent from top 15.** The visual pathway neurons that the sim injects are NOT dominant inputs to DNa02.
+
+**DNa02 downstream top:** IN08A006 (×4), DNge026 L+R, IN19A003 L+R, **Sternal anterior rotator MN L+R** (weight 29–37), PS137, PS100, IN07B006
+
+→ DNa02 directly innervates the sternal anterior rotator motor neurons — the wing-base muscles for flight steering. It IS the output stage.
+
+**AN03A008 trace:**
+
+AN03A008's downstream: **DNa02 L** (203.8), **DNa02 R** (197.2), **pIP1 L** (171.3), **pIP1 R** (145.2), then PVLP149, AVLP712m, PVLP048 (all ~30–40). Almost all output goes to DNa02 and pIP1.
+
+AN03A008's upstream: weak distributed inputs, max weight 13.5. Notable: **LgLG6** (Lobula Giant 6, a wide-field motion detector) — weight 7.2. This IS a visual neuron!
+
+**The actual visual pathway to DNa02:**
+`T4a → (medulla local neurons) → ... → LgLG6 → AN03A008 → DNa02`
+
+The sim injects T4a but the signal has to propagate through multiple hops (including LgLG6) before reaching AN03A008 and DNa02. At STEPS=50 ticks (~5ms), the signal likely doesn't complete this path.
+
+**pIP1 convergence:** Both AN03A008 (weight 171) and DNp02 (weight 92) project strongly to pIP1. This is not coincidence — pIP1 appears to be a shared high-urgency maneuver neuron (its "courtship chasing" label may be an incomplete characterization; it may encode "pursue/follow" in multiple behavioral contexts).
+
+**Why CUDA gives DNa02=5.5 and CPU gives ~0:** Likely the CUDA kernel fires neurons differently (possibly with lower threshold or different numerical integration), or there's a faster short-circuit path in the graph that the CPU advance misses within 50 ticks.
+
+**Fix required:** To properly drive DNa02 via visual flow, the sim should inject AN03A008 or LgLG6 neurons directly (or inject deeper into the medulla pathway). The current T4a injection is too far upstream — the signal dissipates before reaching DNa02.
+
+---
+
 ## What This Means for the Project
 
 ### Which systems are NOT doing the work
@@ -134,7 +165,7 @@ The default FLOW_GAIN of 150 is in the saturation dead zone. To get L/R differen
 
 ### Immediate (next session)
 1. **Rerun LPLC2 test with forced wall approach** — run brain_runner.py with arena reduced to 400×400 or manually navigate the fly toward a wall. Confirm whether LPLC2 → DNp01 actually fires and encodes direction on approach.
-2. **Map the actual DNa02 input sources** — use trace_dn.py to find what IS driving DNa02 L/R asymmetry in CUDA runs. If T4a isn't the source, something else is.
+2. **Inject AN03A008 instead of (or in addition to) T4a** — AN03A008 is the real gateway to DNa02. One hop from DNa02 vs. 4+ hops from T4a. Add AN03A008 to `neuron_groups.json` and inject it directly with the L/R flow signal in `flow_encoder.py`.
 3. **Lower FLOW_GAIN to 20–40, run on CUDA** — check if T4a→DNa02 becomes directionally sensitive in this range even if firing rates are lower overall.
 
 ### Architectural questions raised
