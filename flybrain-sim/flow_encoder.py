@@ -45,6 +45,9 @@ FLOW_GAIN    = 150.0  # mV per unit flow ray-sum  (up from 20; new formula is ~8
 LOOM_GAIN    = 1.0    # mV per unit expansion ray-sum (start point; retune with --calibrate)
 MECH_GAIN    = 20.0   # mV per normalized contact pressure; calibrated sparse-response test
 CONTACT_GAIN = 300.0  # mV per normalized contact pressure; direct DNg29 injection
+AN03A008_GAIN = 1.0  # mV per unit flow ray-sum; direct injection into DNa02 gateway neuron
+                      # AN03A008 is 1 hop from DNa02 vs 4+ hops from T4a; much lower gain needed
+                      # Retune with --calibrate; target: measurable DNa02 L/R differential
                       # bypasses bilateral JO pool (JO somaSide=nan in MaleCNS)
                       # 300 needed for reliable DNg29 firing (~50% at 200, higher at 300)
 
@@ -65,7 +68,8 @@ class FlowEncoder:
         self._report_coverage()
 
     def _report_coverage(self):
-        keys = ["t4a_left", "t4a_right", "lc4_left", "lc4_right", "dna02_left"]
+        keys = ["t4a_left", "t4a_right", "lc4_left", "lc4_right", "dna02_left",
+                "an03a008_left", "an03a008_right"]
         for k in keys:
             arr = self._g.get(k, np.array([], dtype=np.int32))
             print(f"  FlowEncoder {k}: {len(arr)} neurons")
@@ -135,6 +139,11 @@ class FlowEncoder:
         self._inject(drive, "mech_right",   max(0.0, mech_r) * MECH_GAIN)
         self._inject(drive, "dng29_left",   max(0.0, mech_l) * CONTACT_GAIN)
         self._inject(drive, "dng29_right",  max(0.0, mech_r) * CONTACT_GAIN)
+        # Direct gateway injection: AN03A008 → DNa02 (1 hop, weight ~200)
+        # Bypasses the 4+ hop T4a→...→LgLG6→AN03A008 path that can't complete in 50 ticks.
+        # Gives the L/R directional signal that T4a injection alone fails to produce.
+        self._inject(drive, "an03a008_left",  left_ftb  * AN03A008_GAIN)
+        self._inject(drive, "an03a008_right", right_ftb * AN03A008_GAIN)
 
         return drive
 
