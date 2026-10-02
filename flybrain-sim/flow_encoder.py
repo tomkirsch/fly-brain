@@ -45,7 +45,7 @@ FLOW_GAIN    = 150.0  # mV per unit flow ray-sum  (up from 20; new formula is ~8
 LOOM_GAIN    = 1.0    # mV per unit expansion ray-sum (start point; retune with --calibrate)
 MECH_GAIN    = 20.0   # mV per normalized contact pressure; calibrated sparse-response test
 CONTACT_GAIN = 300.0  # mV per normalized contact pressure; direct DNg29 injection
-AN03A008_GAIN = 1.0  # mV per unit flow ray-sum; direct injection into DNa02 gateway neuron
+AN03A008_GAIN = 2.0  # mV per unit flow ray-sum; direct injection into DNa02 gateway neuron
                       # AN03A008 is 1 hop from DNa02 vs 4+ hops from T4a; much lower gain needed
                       # Retune with --calibrate; target: measurable DNa02 L/R differential
                       # bypasses bilateral JO pool (JO somaSide=nan in MaleCNS)

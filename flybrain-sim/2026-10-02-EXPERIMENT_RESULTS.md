@@ -176,5 +176,40 @@ The default FLOW_GAIN of 150 is in the saturation dead zone. To get L/R differen
 
 ---
 
-*Written by SeafoamBot research worker, 2026-10-02 ~05:30am EDT.*
+## 7. AN03A008 Injection Implementation and Testing (Extended)
+
+**What was done:**
+- Added `an03a008_left: [3305]` and `an03a008_right: [2937]` to `neuron_groups.json`
+- Added direct injection to `flow_encoder.py`: `AN03A008_GAIN = 2.0`, both L/R sides get the same `left_ftb`/`right_ftb` flow signal as T4a
+- Committed: `a5286fb` (groups + injection), `(pending)` (gain=2.0 update)
+
+**CUDA test results:**
+
+*Connection verified:* AN03A008_L → DNa02_L at weight 203.8 confirmed in brain.post graph.
+
+*Encoder asymmetry confirmed:* near top wall (y=80), heading east: AN03A008_L=180mV vs AN03A008_R=8.6mV (20:1 ratio) ✓
+
+*DNa02 CUDA response:*
+- Gain sweep at asymmetric position: gain=2.0 gives diff=+1.6 (DNa02_L=6.4, DNa02_R=4.8)
+- Correlation test (20 positions along top wall): r=0.504, p=0.023 — **statistically significant but weak**
+- DNa02 baseline from T4a injection: ~5.5/side (dominant, saturating)
+- AN03A008 contribution: +0 to +1.6 on appropriate side
+- Top vs bottom wall sign flip: not reliably detected (noise dominates)
+
+**Root cause of weakness:**
+1. T4a injection at FLOW_GAIN=150 pre-saturates DNa02 at ~5.5/window
+2. DNa02 is a single neuron per side — each spike count is discrete (0.8 or 1.6 increments after normalization)
+3. AN03A008 can only add ~0.5–1.6 on top of the saturated baseline
+4. Net: statistically present (r=0.50), practically unreliable (wrong direction in many individual frames)
+
+**What's needed for reliable directional control:**
+1. Lower FLOW_GAIN to ~30–40 (below DNa02 saturation threshold) so T4a doesn't pre-saturate DNa02
+2. Retune AN03A008_GAIN so AN03A008 is the primary driver of DNa02
+3. Or: track DNa02 over multiple frames (rolling window) to filter the stochastic noise
+
+**Current state (committed):** AN03A008 injection is in place at gain=2.0. The pathway is real and statistically detectable. Further gain tuning and FLOW_GAIN reduction needed for robust directional steering.
+
+---
+
+*Written by SeafoamBot research worker, 2026-10-02 05:30am–6:40am EDT.*
 *Branch: cuda-kernel. Repo: tomkirsch/fly-brain.*
